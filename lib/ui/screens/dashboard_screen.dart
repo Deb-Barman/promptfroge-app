@@ -122,13 +122,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ],
             SectionTitle('Recent activity', trailing: TextButton(onPressed: () => context.go('/library'), child: const Text('See all'))),
             if (recent.isEmpty)
-              const SizedBox(
-                height: 260,
-                child: EmptyState(
-                  icon: Icons.edit_note,
-                  title: 'Your vault is empty',
-                  body: 'Write your first prompt — it is saved as a Markdown file in your folder.',
-                ),
+              const EmptyState(
+                icon: Icons.edit_note,
+                title: 'Your vault is empty',
+                body: 'Write your first prompt — it is saved as a Markdown file in your folder.',
               )
             else
               for (final x in recent) Padding(padding: const EdgeInsets.only(bottom: 8), child: PromptCard(prompt: x, onTap: () => open(x.id))),

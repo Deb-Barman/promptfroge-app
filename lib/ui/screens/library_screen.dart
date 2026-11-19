@@ -203,7 +203,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       context,
       title: 'Possible duplicates',
       builder: (ctx) => groups.isEmpty
-          ? const SizedBox(height: 220, child: EmptyState(icon: Icons.check_circle_outline, title: 'No near-duplicates', body: 'No two prompts look more than 55% alike.'))
+          ? const SingleChildScrollView(child: EmptyState(icon: Icons.check_circle_outline, title: 'No near-duplicates', body: 'No two prompts look more than 55% alike.'))
           : ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
               for (final g in groups)
                 Padding(

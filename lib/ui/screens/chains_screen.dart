@@ -153,7 +153,7 @@ class _ChainFormState extends ConsumerState<_ChainForm> {
       context,
       title: 'Choose a prompt',
       builder: (ctx) => prompts.isEmpty
-          ? const SizedBox(height: 160, child: EmptyState(icon: Icons.description_outlined, title: 'No prompts yet', body: 'Create a prompt first, then add it as a step.'))
+          ? const SingleChildScrollView(child: EmptyState(icon: Icons.description_outlined, title: 'No prompts yet', body: 'Create a prompt first, then add it as a step.'))
           : ListView(shrinkWrap: true, children: [for (final x in prompts) ListTile(title: Text(x.displayTitle), onTap: () => Navigator.pop(ctx, x.id))]),
     );
     if (id != null) setState(() => _steps.add(ChainStep(promptId: id)));
