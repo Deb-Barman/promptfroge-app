@@ -1,0 +1,33 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+.vscode/
+coverage/
+
+# NOTE: pubspec.lock is intentionally NOT ignored - commit it after the first `flutter pub get`.
+
+# Generated platform folders are produced by `tool/bootstrap.sh` (flutter create + patch).
+# Remove these two lines once you commit the generated android/ and ios/ folders.
+# /android/
+# /ios/
+
+# Secrets - never commit
+.env
+*.jks
+*.keystore
+key.properties
+*.p12
+*.p8
+*.mobileprovision
+google-play-service-account.json
+fastlane/report.xml
+fastlane/.env*
+ios/Pods/
+
+# Node dev dependency for the golden generator (npm install --no-save @xmldom/xmldom)
+node_modules/
