@@ -1,0 +1,37 @@
+name: iOS build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['lib/**', 'assets/**', 'pubspec.yaml', 'tool/**', '.github/workflows/ios-build.yml']
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+          cache: true
+      - name: Generate / patch the ios folder if it is not committed
+        run: |
+          if [ ! -d ios ]; then tool/bootstrap.sh; else python3 tool/patch_platforms.py; flutter pub get; fi
+      - name: Launcher icons
+        run: |
+          pip3 install --quiet pillow
+          python3 tool/make_icons.py
+      # No signing here: this proves the project compiles for iOS. Signed builds need an Apple Developer account
+      # (see docs/RELEASING.md) and are done by the Release workflow only when its secrets exist.
+      - run: flutter build ios --release --no-codesign
+      - name: Zip the unsigned app
+        run: |
+          cd build/ios/iphoneos
+          zip -qry "$GITHUB_WORKSPACE/PromptForge-unsigned.app.zip" Runner.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-app
+          path: PromptForge-unsigned.app.zip

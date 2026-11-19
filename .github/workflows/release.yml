@@ -1,0 +1,121 @@
+name: Release
+
+# Runs when a tag like v1.0.0 is pushed. Every signed/store step is skipped (with a visible notice) when its
+# secrets are missing - the workflow never pretends something was published.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+    outputs:
+      signed: ${{ steps.sign.outputs.signed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.50.0', channel: stable, cache: true }
+      - name: Generate / patch the android folder
+        run: |
+          if [ ! -d android ]; then tool/bootstrap.sh --signing; else python3 tool/patch_platforms.py --signing; flutter pub get; fi
+      - name: Launcher icons
+        run: |
+          pip install --quiet pillow
+          python3 tool/make_icons.py
+      - name: Test before releasing
+        run: flutter test
+      - name: Configure signing (only if the keystore secrets exist)
+        id: sign
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+            {
+              echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+              echo "keyPassword=$ANDROID_KEY_PASSWORD"
+              echo "keyAlias=$ANDROID_KEY_ALIAS"
+              echo "storeFile=upload-keystore.jks"
+            } > android/key.properties
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Android signing secrets are not configured - building with the DEBUG key. This artifact cannot be uploaded to Google Play."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - run: |
+          flutter build appbundle --release
+          flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ steps.sign.outputs.signed == 'true' && 'signed' || 'debug-signed' }}
+          path: |
+            build/app/outputs/bundle/release/app-release.aab
+            build/app/outputs/flutter-apk/app-release.apk
+      - name: Upload to Google Play internal track (only when signed AND a service account exists)
+        if: steps.sign.outputs.signed == 'true' && env.PLAY_SERVICE_ACCOUNT_JSON != ''
+        run: |
+          echo "$PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/play.json"
+          export PLAY_JSON_KEY_PATH="$RUNNER_TEMP/play.json"
+          gem install bundler fastlane --no-document
+          fastlane android internal
+      - name: Play upload skipped
+        if: steps.sign.outputs.signed != 'true' || env.PLAY_SERVICE_ACCOUNT_JSON == ''
+        run: echo "::notice::Google Play upload skipped (needs signing secrets and PLAY_SERVICE_ACCOUNT_JSON)."
+
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_BASE64 }}
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '3.50.0', channel: stable, cache: true }
+      - name: Generate / patch the ios folder
+        run: |
+          if [ ! -d ios ]; then tool/bootstrap.sh; else python3 tool/patch_platforms.py; flutter pub get; fi
+      - name: Launcher icons
+        run: |
+          pip3 install --quiet pillow
+          python3 tool/make_icons.py
+      - run: flutter build ios --release --no-codesign
+      - name: TestFlight upload (only when App Store Connect secrets exist)
+        if: env.APP_STORE_CONNECT_KEY_ID != '' && env.APP_STORE_CONNECT_ISSUER_ID != '' && env.APP_STORE_CONNECT_KEY_BASE64 != '' && env.MATCH_GIT_URL != ''
+        run: |
+          gem install bundler fastlane --no-document
+          fastlane ios beta
+      - name: TestFlight upload skipped
+        if: env.APP_STORE_CONNECT_KEY_ID == '' || env.MATCH_GIT_URL == ''
+        run: echo "::notice::TestFlight upload skipped (needs an Apple Developer account, App Store Connect API key and fastlane match repo - see docs/RELEASING.md)."
+
+  github-release:
+    needs: android
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create GitHub release with whatever was built
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/**/*
+          prerelease: ${{ needs.android.outputs.signed != 'true' }}
+          body: |
+            ${{ needs.android.outputs.signed == 'true' && 'Signed Android build.' || '**Pre-release:** Android signing secrets were not configured, so these binaries are debug-signed and are not store-ready.' }}

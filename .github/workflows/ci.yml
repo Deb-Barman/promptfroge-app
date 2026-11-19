@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+          cache: true
+      - run: flutter --version
+      - run: flutter pub get
+      # Info-level lints do not fail the build; warnings and errors do.
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test --coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/lcov.info
+          if-no-files-found: ignore
+
+  generated-files-are-current:
+    # The constants and the test goldens are generated from the ORIGINAL web app (reference/PromptForge.html).
+    # This job fails if someone edits the generated files by hand or the generators drift.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install the XML parser the golden generator uses in place of the browser's DOMParser
+        run: npm install --no-save --no-audit --no-fund @xmldom/xmldom
+      - name: constants_data.dart matches the original CONFIG
+        run: |
+          node tool/gen_constants.js reference/PromptForge.html > "$RUNNER_TEMP/constants_data.dart"
+          diff -u lib/core/constants_data.dart "$RUNNER_TEMP/constants_data.dart"
+      - name: engine goldens match the original JavaScript
+        run: |
+          node tool/golden/gen_goldens.js reference/PromptForge.html > "$RUNNER_TEMP/engines.json"
+          diff -u test/goldens/engines.json "$RUNNER_TEMP/engines.json"
+
+  no-network-code:
+    # Guard for the product promise: no backend, no AI calls, no accounts.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: pubspec has no networking / backend / AI packages
+        run: |
+          if grep -Eiq '^\s*(dio|http|supabase[a-z_]*|firebase[a-z_]*|openai[a-z_]*|anthropic[a-z_]*|google_generative_ai|web_socket_channel|graphql[a-z_]*)\s*:' pubspec.yaml; then
+            echo "Forbidden networking/backend dependency found in pubspec.yaml"; exit 1
+          fi
+      - name: no network calls in lib/
+        # tools.dart only *generates* copy-paste snippets (curl/Python) as text for the "Copy as" feature; it never calls them.
+        run: |
+          if grep -RInE "dart:io.*HttpClient|HttpClient\(|package:http/|Uri\.https?\(|https?://[a-z0-9.-]+/(v1|api)" lib/ | grep -v -e "^lib/core/constants_data.dart" -e "^lib/domain/engines/tools.dart"; then
+            echo "Network access found in lib/"; exit 1
+          fi
