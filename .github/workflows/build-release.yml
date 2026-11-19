@@ -189,6 +189,35 @@ jobs:
           fi
           echo "signed=$signed" >> "$GITHUB_OUTPUT"
 
+      # Old Flutter plugins (file_picker, ...) still compile against Android API 34, but newer libraries they
+      # depend on need API 36+ ("checkReleaseAarMetadata" error). This Gradle init script raises the compileSdk
+      # of those plugin modules to 36 during the build. It never lowers it and never touches the app module.
+      - name: Raise compileSdk of old plugins (Gradle init script)
+        run: |
+          mkdir -p "$HOME/.gradle/init.d"
+          cat > "$HOME/.gradle/init.d/force-compile-sdk.gradle" <<'EOF'
+          beforeProject { p ->
+              p.afterEvaluate { proj ->
+                  def ext = proj.extensions.findByName("android")
+                  if (ext == null || proj.name == "app") {
+                      return
+                  }
+                  try {
+                      def cur = ext.compileSdkVersion
+                      def m = (cur == null ? "" : cur.toString()) =~ /android-(\d+)/
+                      def curInt = m.find() ? m.group(1).toInteger() : 0
+                      if (curInt > 0 && curInt < 36) {
+                          ext.compileSdkVersion(36)
+                          println "[force-compile-sdk] ${proj.path}: compileSdk ${curInt} -> 36"
+                      }
+                  } catch (Throwable t) {
+                      println "[force-compile-sdk] ${proj.path}: skipped (${t.class.simpleName})"
+                  }
+              }
+          }
+          EOF
+          cat "$HOME/.gradle/init.d/force-compile-sdk.gradle"
+
       - name: Flutter doctor
         run: flutter doctor -v
 
