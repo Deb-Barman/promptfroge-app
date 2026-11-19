@@ -1,1 +1,14 @@
+Prompt Forge is an offline workspace for writing, organising and improving prompts.
 
+Your prompts live as plain Markdown files in a folder you pick or create - like an Obsidian vault. Open the same folder in Obsidian, sync it with the tool you already use, and back it up like any folder. There is no account, no backend and no AI service; the app makes no network requests.
+
+- Editor with syntax highlighting, line numbers, variables ({{name}}), find and replace, undo/redo, autosave and Zen mode
+- Local prompt analysis: rule-based scores, ambiguity and risk checks, secret detection, readability, token estimates
+- Library with search, categories, tags, groups, favourites, archive and bulk actions
+- Templates, snippets (/trigger), patterns and chains
+- Visual Builder with CO-STAR, RTF and your own structures
+- Version history with word-level diff and restore
+- [[Wiki links]] between prompts and a link overview
+- Import, export (MD, TXT, CSV, HTML) and full JSON backups
+
+Token counts are estimates and scores are heuristics, not model evaluations.
