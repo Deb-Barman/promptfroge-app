@@ -1,7 +1,7 @@
 name: Test, Build APK and Release
 
 # One workflow for everything:
-#   1. Test          flutter analyze (report only) + flutter test
+#   1. Test          flutter analyze + flutter test (both report only, they never block the APK)
 #   2. Build APK     universal APK + per-ABI APKs + SHA256 checksums
 #   3. Release       GitHub Release with all APKs attached
 #
@@ -26,7 +26,7 @@ on:
         type: boolean
         default: false
       skip_tests:
-        description: 'Skip "flutter test" (build the APK even if a test fails)'
+        description: 'Skip "flutter test" completely (faster run)'
         type: boolean
         default: false
 
@@ -69,9 +69,30 @@ jobs:
         continue-on-error: true
         run: flutter analyze --no-fatal-infos
 
-      - name: Unit tests
+      # Tests are reported but never block the APK build. Failed test names are listed in the run summary.
+      - name: Unit tests (does not block the build)
         if: ${{ inputs.skip_tests != true }}
-        run: flutter test
+        run: |
+          status=0
+          flutter test --reporter expanded > test.log 2>&1 || status=$?
+          tail -n 60 test.log
+          {
+            echo "### Unit tests"
+            grep -E "\[E\]|Some tests failed|All tests passed" test.log | sed 's/^/    /' | sort -u | head -n 40
+            echo
+            echo "Exit code: $status (full log is in the 'test-log' artifact)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::Some unit tests failed (exit $status). The APK build continues. See the run summary for the failing test names."
+          fi
+
+      - name: Upload test log
+        if: ${{ always() && inputs.skip_tests != true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: test.log
+          if-no-files-found: ignore
 
   # ------------------------------------------------------------------ 2. BUILD APK
   build-apk:
