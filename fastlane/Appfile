@@ -1,0 +1,7 @@
+# Values come from the environment so nothing sensitive is committed. See docs/RELEASING.md.
+package_name(ENV["ANDROID_PACKAGE_NAME"] || "com.promptforge.prompt_forge")
+json_key_file(ENV["PLAY_JSON_KEY_PATH"]) if ENV["PLAY_JSON_KEY_PATH"]
+
+app_identifier(ENV["IOS_BUNDLE_ID"] || "com.promptforge.promptForge")
+apple_id(ENV["APPLE_ID"]) if ENV["APPLE_ID"]
+team_id(ENV["APPLE_TEAM_ID"]) if ENV["APPLE_TEAM_ID"]

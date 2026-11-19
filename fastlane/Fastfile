@@ -1,1 +1,49 @@
+# Fastlane lanes for Prompt Forge. Run from the repository root.
+# The lanes refuse to run (instead of faking success) when required credentials are missing.
+default_platform(:android)
 
+def require_env!(*names)
+  missing = names.select { |n| ENV[n].to_s.empty? }
+  UI.user_error!("Missing required environment variables: #{missing.join(', ')}  (see docs/RELEASING.md)") unless missing.empty?
+end
+
+platform :android do
+  desc "Upload the signed release AAB to the Google Play INTERNAL testing track"
+  lane :internal do
+    require_env!("PLAY_JSON_KEY_PATH")
+    aab = "build/app/outputs/bundle/release/app-release.aab"
+    UI.user_error!("#{aab} not found - run `flutter build appbundle --release` with signing configured first") unless File.exist?(aab)
+    upload_to_play_store(
+      track: "internal",
+      aab: aab,
+      release_status: "draft", # nothing goes live without a human pressing the button in Play Console
+      skip_upload_metadata: false,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      metadata_path: "fastlane/metadata/android"
+    )
+  end
+end
+
+platform :ios do
+  desc "Build a signed IPA with fastlane match and upload it to TestFlight"
+  lane :beta do
+    require_env!("APP_STORE_CONNECT_KEY_ID", "APP_STORE_CONNECT_ISSUER_ID", "APP_STORE_CONNECT_KEY_BASE64", "MATCH_GIT_URL", "MATCH_PASSWORD", "APPLE_TEAM_ID")
+    api_key = app_store_connect_api_key(
+      key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
+      key_content: ENV["APP_STORE_CONNECT_KEY_BASE64"],
+      is_key_content_base64: true
+    )
+    setup_ci if ENV["CI"]
+    match(type: "appstore", readonly: is_ci, api_key: api_key)
+    sh("flutter build ios --release --no-codesign")
+    build_app(
+      workspace: "ios/Runner.xcworkspace",
+      scheme: "Runner",
+      export_method: "app-store",
+      skip_build_archive: false
+    )
+    upload_to_testflight(api_key: api_key, skip_waiting_for_build_processing: true)
+  end
+end
