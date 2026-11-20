@@ -1,41 +1,24 @@
-name: Test, Build APK and Release
+name: Build APK
 
-# One workflow for everything:
-#   1. Test          flutter analyze + flutter test (both report only, they never block the APK)
-#   2. Build APK     universal APK + per-ABI APKs + SHA256 checksums
-#   3. Release       GitHub Release with all APKs attached
+# Builds ONE installable Android APK of the app. Nothing else (no tests, no release, no iOS).
 #
-# How to run it
-#   - Push to main            -> Test + Build (APKs are in the run's "Artifacts")
-#   - Push a tag like v1.0.0  -> Test + Build + Release
-#   - Actions tab > Run workflow -> choose "release" to also publish a GitHub Release
-#   - Pull request            -> Test only
+# Run it:  push to main, or Actions tab > "Build APK" > Run workflow.
+# Get it:  open the finished run > Artifacts > PromptForge-<version>.apk  (a plain .apk, no unzip needed).
 #
-# No secrets are required. Without keystore secrets the APK is signed with the debug key
-# (installable on your own phone, not for the Play Store).
+# No secrets needed. The APK is signed with the debug key (fine for installing on your own phone).
+# If an older build is already installed on the phone, uninstall it first.
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
-  pull_request:
   workflow_dispatch:
-    inputs:
-      release:
-        description: 'Also publish a GitHub Release (tag = v<version from pubspec.yaml>)'
-        type: boolean
-        default: false
-      skip_tests:
-        description: 'Skip "flutter test" completely (faster run)'
-        type: boolean
-        default: false
 
 concurrency:
-  group: build-release-${{ github.ref }}
+  group: build-apk-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   FLUTTER_VERSION: '3.50.0'
@@ -44,75 +27,14 @@ env:
   ORG: com.promptforge
 
 jobs:
-  # ------------------------------------------------------------------ 1. TEST
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-
-      - name: Flutter version
-        run: flutter --version
-
-      - name: Get packages
-        run: flutter pub get
-
-      # Report only: lint findings are shown as annotations but never block the APK.
-      - name: Analyze (does not block the build)
-        continue-on-error: true
-        run: flutter analyze --no-fatal-infos
-
-      # Tests are reported but never block the APK build. Failed test names are listed in the run summary.
-      - name: Unit tests (does not block the build)
-        if: ${{ inputs.skip_tests != true }}
-        run: |
-          status=0
-          flutter test --reporter expanded > test.log 2>&1 || status=$?
-          tail -n 60 test.log
-          {
-            echo "### Unit tests"
-            grep -E "\[E\]|Some tests failed|All tests passed" test.log | sed 's/^/    /' | sort -u | head -n 40
-            echo
-            echo "Exit code: $status (full log is in the 'test-log' artifact)"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$status" -ne 0 ]; then
-            echo "::warning::Some unit tests failed (exit $status). The APK build continues. See the run summary for the failing test names."
-          fi
-
-      - name: Upload test log
-        if: ${{ always() && inputs.skip_tests != true }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-log
-          path: test.log
-          if-no-files-found: ignore
-
-  # ------------------------------------------------------------------ 2. BUILD APK
   build-apk:
     name: Build APK
-    needs: test
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-    outputs:
-      version: ${{ steps.meta.outputs.version }}
-      signed: ${{ steps.sign.outputs.signed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -130,13 +52,12 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "App version: $VERSION"
 
-      # The android/ folder is not committed, so it is generated here.
-      # Only Android is generated and patched (iOS is not needed for an APK).
+      # The android/ folder is not committed, so it is generated here (Android only).
       - name: Generate android/ folder (if not committed)
         run: |
           if [ ! -d android ]; then
             flutter create --platforms=android --org "$ORG" --project-name prompt_forge .
-            rm -f test/widget_test.dart   # sample test added by 'flutter create' (references a MyApp that does not exist)
+            rm -f test/widget_test.dart
           fi
           flutter pub get
 
@@ -158,40 +79,8 @@ jobs:
           pip install --quiet pillow
           python3 tool/make_icons.py
 
-      # Signing happens only when ALL four secrets exist. Otherwise the debug key is used.
-      - name: Configure signing (only if keystore secrets exist)
-        id: sign
-        run: |
-          signed=false
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
-            {
-              echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
-              echo "keyPassword=$ANDROID_KEY_PASSWORD"
-              echo "keyAlias=$ANDROID_KEY_ALIAS"
-              echo "storeFile=upload-keystore.jks"
-            } > android/key.properties
-            if python3 - <<'PY'
-          import sys
-          sys.path.insert(0, "tool")
-          import patch_platforms as pp
-          pp.patch_signing()
-          sys.exit(1 if pp.failures else 0)
-          PY
-            then
-              signed=true
-            else
-              echo "::warning::Could not wire release signing into the Gradle file - building with the DEBUG key instead."
-              rm -f android/key.properties android/app/upload-keystore.jks
-            fi
-          else
-            echo "::notice::No keystore secrets configured - APK will be signed with the DEBUG key (fine for installing on your own phone)."
-          fi
-          echo "signed=$signed" >> "$GITHUB_OUTPUT"
-
-      # Old Flutter plugins (file_picker, ...) still compile against Android API 34, but newer libraries they
-      # depend on need API 36+ ("checkReleaseAarMetadata" error). This Gradle init script raises the compileSdk
-      # of those plugin modules to 36 during the build. It never lowers it and never touches the app module.
+      # Old plugins (file_picker, ...) compile against Android API 34 but newer libraries need 36+.
+      # This Gradle init script raises only those plugin modules to 36. It never lowers anything.
       - name: Raise compileSdk of old plugins (Gradle init script)
         run: |
           mkdir -p "$HOME/.gradle/init.d"
@@ -216,83 +105,23 @@ jobs:
               }
           }
           EOF
-          cat "$HOME/.gradle/init.d/force-compile-sdk.gradle"
 
-      - name: Flutter doctor
-        run: flutter doctor -v
-
-      - name: Build universal APK
+      - name: Build APK
         run: flutter build apk --release
 
-      - name: Build per-ABI APKs
-        run: flutter build apk --release --split-per-abi
-
-      - name: Collect release files
+      - name: Name the APK
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          OUT=build/app/outputs/flutter-apk
-          ls -la "$OUT"
           mkdir -p dist
-          cp "$OUT/app-release.apk"              "dist/${APP_NAME}-${VERSION}-universal.apk"
-          cp "$OUT/app-arm64-v8a-release.apk"    "dist/${APP_NAME}-${VERSION}-arm64-v8a.apk"
-          cp "$OUT/app-armeabi-v7a-release.apk"  "dist/${APP_NAME}-${VERSION}-armeabi-v7a.apk"
-          cp "$OUT/app-x86_64-release.apk"       "dist/${APP_NAME}-${VERSION}-x86_64.apk"
-          (cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/${APP_NAME}-${VERSION}.apk"
+          ls -la dist
 
-      - name: Upload APKs
-        uses: actions/upload-artifact@v4
+      # archive: false -> the APK is downloadable directly (not wrapped in a zip).
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.APP_NAME }}-android-apk
-          path: dist/*
+          path: dist/${{ env.APP_NAME }}-${{ steps.meta.outputs.version }}.apk
+          archive: false
           if-no-files-found: error
           retention-days: 30
-
-  # ------------------------------------------------------------------ 3. RELEASE
-  release:
-    name: GitHub Release
-    needs: build-apk
-    if: ${{ github.ref_type == 'tag' || inputs.release == true }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Download APKs
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.APP_NAME }}-android-apk
-          path: dist
-
-      - name: Work out tag and notes
-        id: rel
-        env:
-          VERSION: ${{ needs.build-apk.outputs.version }}
-          SIGNED: ${{ needs.build-apk.outputs.signed }}
-        run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then TAG="$GITHUB_REF_NAME"; else TAG="v$VERSION"; fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          {
-            echo "## ${APP_NAME} ${VERSION}"
-            echo
-            echo "**Install:** download \`${APP_NAME}-${VERSION}-universal.apk\` (works on every phone) and open it."
-            echo "Smaller download for modern phones: \`-arm64-v8a.apk\`. Verify files with \`SHA256SUMS.txt\`."
-            echo
-            if [ "$SIGNED" = "true" ]; then
-              echo "Signed with the project release key."
-            else
-              echo "_Signed with the debug key (no keystore secrets configured). Installs fine on your phone but is not Play Store ready. If you already have an older build installed, uninstall it first._"
-            fi
-            echo
-          } > release-body.md
-          cat release-body.md
-
-      - name: Publish release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.rel.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          name: ${{ env.APP_NAME }} ${{ steps.rel.outputs.tag }}
-          body_path: release-body.md
-          generate_release_notes: true
-          prerelease: ${{ needs.build-apk.outputs.signed != 'true' }}
-          files: dist/*
-          fail_on_unmatched_files: true
