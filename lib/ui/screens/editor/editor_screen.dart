@@ -23,6 +23,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/common.dart';
 import 'code_editor.dart';
 import 'editor_tools.dart';
+import 'quick_actions.dart';
 
 class EditorScreen extends ConsumerStatefulWidget {
   const EditorScreen({super.key});
@@ -822,6 +823,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
                   _metaChip(_tags.isEmpty ? '+ tags' : _tags.map((t) => '#$t').join(' '), p.textSecondary, _editTags),
                 ]),
               ),
+            if (!zen) EditorQuickActions(host: this, showBlocks: MediaQuery.of(context).viewInsets.bottom == 0),
             if (_saveError != null)
               MaterialBanner(
                 backgroundColor: p.red.withOpacity(0.12),
@@ -921,22 +923,38 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
         ]),
       );
 
-  Widget _suggestionStrip(PfPalette p) => Container(
-        height: 44,
-        decoration: BoxDecoration(color: p.surface, border: Border(top: BorderSide(color: p.border))),
-        child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8), children: [
-          for (final s in _suggestions)
-            Padding(
-              padding: const EdgeInsets.only(right: 6, top: 6, bottom: 6),
-              child: ActionChip(
-                avatar: Icon(_iconFor(s.src), size: 15, color: p.amber),
-                label: Text(Utils.truncate(s.label.replaceAll('\n', ' '), 32), style: const TextStyle(fontSize: 12.5)),
-                visualDensity: VisualDensity.compact,
-                onPressed: () => _acceptSuggestion(s),
+  /// Dropdown-style completion list (like the web editor): the typed word's best matches, each with a type tag.
+  Widget _suggestionStrip(PfPalette p) {
+    final shown = _suggestions.take(7).toList();
+    final mono = TextStyle(fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback, fontSize: 14, color: p.text);
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 290),
+      decoration: BoxDecoration(color: p.surface2, border: Border(top: BorderSide(color: p.border))),
+      child: ListView(
+        shrinkWrap: true,
+        padding: EdgeInsets.zero,
+        children: [
+          for (var i = 0; i < shown.length; i++)
+            InkWell(
+              onTap: () => _acceptSuggestion(shown[i]),
+              child: Container(
+                height: 42,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: i == 0 ? p.amber.withOpacity(0.10) : null,
+                  border: Border(left: BorderSide(color: i == 0 ? p.amber : Colors.transparent, width: 3)),
+                ),
+                child: Row(children: [
+                  Expanded(child: Text(Utils.truncate(shown[i].label.replaceAll('\n', ' '), 44), maxLines: 1, overflow: TextOverflow.ellipsis, style: mono)),
+                  const SizedBox(width: 12),
+                  Text(shown[i].src.toUpperCase(), style: TextStyle(fontSize: 10.5, letterSpacing: 0.8, fontWeight: FontWeight.w600, color: p.textTertiary)),
+                ]),
               ),
             ),
-        ]),
-      );
+        ],
+      ),
+    );
+  }
 
   IconData _iconFor(String src) {
     switch (src) {

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/vault/vault_location.dart';
 import '../../state/vault_notifier.dart';
 import '../theme/app_theme.dart';
+import '../widgets/brand_logo.dart';
 import '../widgets/common.dart';
 
 /// First-run / reconnect screen: choose or create the folder that holds all prompts and data.
@@ -42,6 +43,16 @@ class _VaultSetupScreenState extends ConsumerState<VaultSetupScreen> {
     final notifier = ref.read(vaultProvider.notifier);
     final remembered = notifier.location.savedPath;
 
+    if (loading) {
+      return const Scaffold(
+        body: SafeArea(
+          child: BrandSplash(
+            tip: 'Tip: pick a folder inside iCloud Drive, Dropbox, Syncthing or any synced location to use your vault on more than one device.',
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -50,18 +61,7 @@ class _VaultSetupScreenState extends ConsumerState<VaultSetupScreen> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 480),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Center(
-                  child: Container(
-                    width: 84,
-                    height: 84,
-                    decoration: BoxDecoration(
-                      color: p.amber.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: p.amber.withOpacity(0.4)),
-                    ),
-                    child: Icon(Icons.local_fire_department_rounded, size: 44, color: p.amber),
-                  ),
-                ),
+                const Center(child: BrandMarkTile(size: 84)),
                 const SizedBox(height: 22),
                 const Text('Prompt Forge', textAlign: TextAlign.center, style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 8),
@@ -71,9 +71,7 @@ class _VaultSetupScreenState extends ConsumerState<VaultSetupScreen> {
                   style: TextStyle(color: p.textSecondary, height: 1.45),
                 ),
                 const SizedBox(height: 28),
-                if (loading)
-                  const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
-                else ...[
+                ...[
                   FilledButton.icon(
                     onPressed: () => _run(() => notifier.createDefaultVault()),
                     icon: const Icon(Icons.create_new_folder_outlined),

@@ -30,20 +30,21 @@ abstract class EditorHost {
   void jumpToOffset(int offset);
 }
 
-Future<void> showEditorTools(BuildContext context, EditorHost host) {
-  return showPfSheet<void>(context, title: 'Prompt tools', full: true, builder: (ctx) => _ToolsSheet(host: host));
+Future<void> showEditorTools(BuildContext context, EditorHost host, {int initialTab = 0}) {
+  return showPfSheet<void>(context, title: 'Prompt tools', full: true, builder: (ctx) => _ToolsSheet(host: host, initialTab: initialTab));
 }
 
 class _ToolsSheet extends ConsumerStatefulWidget {
   final EditorHost host;
-  const _ToolsSheet({required this.host});
+  final int initialTab;
+  const _ToolsSheet({required this.host, this.initialTab = 0});
 
   @override
   ConsumerState<_ToolsSheet> createState() => _ToolsSheetState();
 }
 
 class _ToolsSheetState extends ConsumerState<_ToolsSheet> with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 6, vsync: this);
+  late final TabController _tabs = TabController(length: 6, vsync: this, initialIndex: widget.initialTab.clamp(0, 5));
 
   @override
   void dispose() {
