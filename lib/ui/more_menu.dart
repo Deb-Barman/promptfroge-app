@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../app/app_drawer.dart';
 import 'onboarding.dart';
 import 'quick_capture.dart';
 
@@ -35,9 +36,19 @@ class MoreMenuButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => IconButton(
-        tooltip: 'More',
-        icon: const Icon(Icons.apps_rounded),
-        onPressed: () => showMoreSheet(context, ref),
+        tooltip: 'Menu',
+        icon: const Icon(Icons.menu_rounded),
+        onPressed: () {
+          // Inside the main tabs: open the navigation drawer. On pushed screens: fall back to the sheet.
+          final shellCtx = shellScaffoldKey.currentContext;
+          final state = shellScaffoldKey.currentState;
+          final inShell = shellCtx != null && state != null && state.hasDrawer && ModalRoute.of(context) == ModalRoute.of(shellCtx);
+          if (inShell) {
+            state.openDrawer();
+          } else {
+            showMoreSheet(context, ref);
+          }
+        },
       );
 }
 
