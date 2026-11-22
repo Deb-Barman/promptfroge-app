@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../domain/models.dart';
+import 'app_drawer.dart';
 import '../ui/quick_capture.dart';
 import '../ui/search_sheet.dart';
 import '../ui/theme/app_theme.dart';
@@ -67,6 +68,8 @@ class AppShell extends ConsumerWidget {
         );
     if (wide) {
       return keys(Scaffold(
+        key: shellScaffoldKey,
+        drawer: AppDrawer(currentTab: navigationShell.currentIndex, onTab: _go),
         body: Row(children: [
           if (!zen)
             NavigationRail(
@@ -81,6 +84,9 @@ class AppShell extends ConsumerWidget {
       ));
     }
     return keys(Scaffold(
+      key: shellScaffoldKey,
+      drawer: AppDrawer(currentTab: navigationShell.currentIndex, onTab: _go),
+      drawerEnableOpenDragGesture: !zen,
       body: navigationShell,
       bottomNavigationBar: zen
           ? null
