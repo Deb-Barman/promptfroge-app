@@ -16,14 +16,15 @@ import '../../../domain/models.dart';
 import '../../../state/device_settings.dart';
 import '../../../state/tokenizer_provider.dart';
 import '../../../state/vault_notifier.dart';
-import '../../more_menu.dart';
 import '../../prompt_export_sheet.dart';
 import '../../search_sheet.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common.dart';
 import 'code_editor.dart';
 import 'editor_tools.dart';
+import 'insights_panel.dart';
 import 'quick_actions.dart';
+import '../../widgets/pf_chrome.dart';
 
 class EditorScreen extends ConsumerStatefulWidget {
   const EditorScreen({super.key});
@@ -61,6 +62,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
   Timer? _suggestTimer;
   Timer? _scoreTimer;
   int? _liveScore;
+  bool _insights = false;
   Prompt? _conflict;
 
   // find & replace
@@ -241,6 +243,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     // The controller notifies for selection moves too; only text edits dirty the doc.
     if (_body.text != _lastSeenText) {
       _lastSeenText = _body.text;
+      _syncWords();
       _markDirty();
       if (_findOpen) _runFind(keepIndex: true);
     }
@@ -251,9 +254,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
   String _lastSeenText = '';
 
   /// Sets the body without marking the document dirty.
+  void _syncWords() {
+    final n = RegExp(r'\S+').allMatches(_body.text).length;
+    Future.microtask(() {
+      if (mounted) ref.read(editorWordsProvider.notifier).state = n;
+    });
+  }
+
   void _setBody(String t) {
     _lastSeenText = t;
     _body.text = t;
+    _syncWords();
   }
 
   Future<void> _flush() async {
@@ -751,40 +762,25 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     final cat = categoryById(_category);
     final status = statusById(_status);
 
-    return PopScope(
-      canPop: !zen,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && zen) ref.read(zenModeProvider.notifier).state = false;
-      },
-      child: Scaffold(
-        backgroundColor: p.editorBg,
-        appBar: zen
-            ? null
-            : AppBar(
-                titleSpacing: 16,
-                title: Row(children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _title,
-                      onChanged: (_) => _markDirty(),
-                      textCapitalization: TextCapitalization.sentences,
-                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-                      decoration: const InputDecoration(hintText: 'Untitled prompt', border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, filled: false, isDense: true),
-                    ),
-                  ),
-                  _SaveIndicator(dirty: _dirty, saving: _saving, error: _saveError != null, saved: stored != null),
-                ]),
-                actions: [
-                  ValueListenableBuilder<UndoHistoryValue>(
-                    valueListenable: _undo,
-                    builder: (context, v, _) => Row(children: [
-                      IconButton(tooltip: 'Undo', icon: const Icon(Icons.undo), onPressed: v.canUndo ? _undo.undo : null),
-                      IconButton(tooltip: 'Redo', icon: const Icon(Icons.redo), onPressed: v.canRedo ? _undo.redo : null),
-                    ]),
-                  ),
-                  IconButton(tooltip: 'Search everything', icon: const Icon(Icons.manage_search), onPressed: () => showSearchSheet(context, ref)),
-                  PopupMenuButton<String>(
+    final fmtLabel = kPromptFormats.firstWhere((f) => f.id == _format, orElse: () => kPromptFormats.first).label;
+    final kbOpen = View.of(context).viewInsets.bottom > 0;
+    MediaQuery.of(context); // rebuild when the keyboard opens/closes
+    final trailing = <Widget>[
+      Container(width: 1, height: 22, margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 9), color: p.border),
+      IconButton(tooltip: 'Find & replace', visualDensity: VisualDensity.compact, icon: const Icon(Icons.search, size: 20), onPressed: () => _menu('find')),
+      ValueListenableBuilder<UndoHistoryValue>(
+        valueListenable: _undo,
+        builder: (context, v, _) => Row(children: [
+          IconButton(tooltip: 'Undo', visualDensity: VisualDensity.compact, icon: const Icon(Icons.undo, size: 20), onPressed: v.canUndo ? _undo.undo : null),
+          IconButton(tooltip: 'Redo', visualDensity: VisualDensity.compact, icon: const Icon(Icons.redo, size: 20), onPressed: v.canRedo ? _undo.redo : null),
+        ]),
+      ),
+      IconButton(tooltip: 'DNA & analyzer', visualDensity: VisualDensity.compact, icon: Icon(Icons.insights_outlined, size: 20, color: _insights ? p.amber : null), onPressed: () => setState(() => _insights = !_insights)),
+      IconButton(tooltip: 'Zen mode', visualDensity: VisualDensity.compact, icon: const Icon(Icons.fullscreen, size: 21), onPressed: () => _menu('zen')),
+      IconButton(tooltip: 'New prompt', visualDensity: VisualDensity.compact, icon: const Icon(Icons.add, size: 22), onPressed: () => _menu('new')),
+      PopupMenuButton<String>(
                     onSelected: _menu,
+        padding: EdgeInsets.zero,
                     itemBuilder: (_) => [
                       const PopupMenuItem(value: 'new', child: Text('New prompt')),
                       const PopupMenuItem(value: 'find', child: Text('Find & replace')),
@@ -807,12 +803,57 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
                       const PopupMenuItem(value: 'delete', child: Text('Delete')),
                     ],
                   ),
-                  const MoreMenuButton(),
-                ],
-              ),
+    ];
+
+    return PopScope(
+      canPop: !zen,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && zen) ref.read(zenModeProvider.notifier).state = false;
+      },
+      child: Scaffold(
+        backgroundColor: p.editorBg,
         body: SafeArea(
           top: zen,
           child: Column(children: [
+            if (!zen)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                child: Row(children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _title,
+                      onChanged: (_) => _markDirty(),
+                      textCapitalization: TextCapitalization.sentences,
+                      style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w700, letterSpacing: -0.2),
+                      decoration: const InputDecoration(hintText: 'Untitled prompt', border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, filled: false, isDense: true, contentPadding: EdgeInsets.symmetric(vertical: 6)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: _pickFormat,
+                    child: Container(
+                      height: 38,
+                      padding: const EdgeInsets.only(left: 12, right: 6),
+                      decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.border)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text(fmtLabel, style: const TextStyle(fontSize: 13.5)),
+                        const SizedBox(width: 6),
+                        Icon(Icons.keyboard_arrow_down, size: 18, color: p.textTertiary),
+                      ]),
+                    ),
+                  ),
+                ]),
+              ),
+            if (!zen)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                child: Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  PfBtn(label: 'Save', icon: Icons.save_outlined, onPressed: () => unawaited(_persist())),
+                  PfBtn(label: 'Download', icon: Icons.file_download_outlined, onPressed: () => _menu('export')),
+                  PfBtn(label: 'Save version', icon: Icons.history_toggle_off, onPressed: () => _menu('version')),
+                  _SaveIndicator(dirty: _dirty, saving: _saving, error: _saveError != null, saved: stored != null),
+                ]),
+              ),
             if (!zen)
               SizedBox(
                 height: 44,
@@ -823,7 +864,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
                   _metaChip(_tags.isEmpty ? '+ tags' : _tags.map((t) => '#$t').join(' '), p.textSecondary, _editTags),
                 ]),
               ),
-            if (!zen) EditorQuickActions(host: this, showBlocks: MediaQuery.of(context).viewInsets.bottom == 0),
+            if (!zen) EditorQuickActions(host: this, trailing: trailing, showBlocks: !kbOpen),
             if (_saveError != null)
               MaterialBanner(
                 backgroundColor: p.red.withOpacity(0.12),
@@ -861,6 +902,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
               ),
             if (_findOpen && !zen) _findBar(p),
             Expanded(
+              flex: 5,
               child: CodeEditor(
                 key: ValueKey(_docKey),
                 controller: _body,
@@ -877,6 +919,22 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
                 hint: 'Write your prompt…  Try / for snippets, // for prompts, @ for links, {{ for variables.',
               ),
             ),
+            if (_insights && !zen)
+              Expanded(
+                flex: 4,
+                child: Container(
+                  decoration: BoxDecoration(border: Border(top: BorderSide(color: p.border))),
+                  child: ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _body,
+                    builder: (context, v, _) => EditorInsights(
+                      text: v.text,
+                      blocks: _blocks,
+                      profileId: ref.watch(vaultProvider).data.settings.scoringProfile,
+                      onProfile: (id) => ref.read(vaultProvider.notifier).updateSettings(ref.read(vaultProvider).data.settings.clone()..scoringProfile = id),
+                    ),
+                  ),
+                ),
+              ),
             if (_suggestions.isNotEmpty) _suggestionStrip(p),
             _bottomBar(p, ds, zen),
           ]),

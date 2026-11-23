@@ -14,7 +14,10 @@ class EditorQuickActions extends StatelessWidget {
 
   /// Show the second row of block chips (hidden while the keyboard is open to save space).
   final bool showBlocks;
-  const EditorQuickActions({super.key, required this.host, this.showBlocks = true});
+
+  /// Icon strip appended to the first row (find, undo, redo, zen, new, menu).
+  final List<Widget> trailing;
+  const EditorQuickActions({super.key, required this.host, this.showBlocks = true, this.trailing = const []});
 
   void _apply(BuildContext c, String result, String msg) {
     if (result == host.text) {
@@ -63,6 +66,7 @@ class EditorQuickActions extends StatelessWidget {
               toast(context, 'Inserted at cursor');
             }, icon: Icons.psychology_outlined),
             _action(context, p, 'More tools', () => showEditorTools(context, host), icon: Icons.more_horiz),
+            ...trailing,
           ]),
         ),
         if (showBlocks)
