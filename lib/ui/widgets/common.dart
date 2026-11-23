@@ -16,21 +16,21 @@ class PfCard extends StatelessWidget {
   final Color? color;
   final Color? borderColor;
 
-  const PfCard({super.key, required this.child, this.onTap, this.onLongPress, this.padding = const EdgeInsets.all(14), this.color, this.borderColor});
+  const PfCard({super.key, required this.child, this.onTap, this.onLongPress, this.padding = const EdgeInsets.all(16), this.color, this.borderColor});
 
   @override
   Widget build(BuildContext context) {
     final p = context.pf;
     return Material(
       color: color ?? p.surface,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         onLongPress: onLongPress,
         child: Container(
           padding: padding,
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: borderColor ?? p.border)),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: borderColor ?? p.borderSubtle)),
           child: child,
         ),
       ),
@@ -56,7 +56,7 @@ class PfChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: selected ? c.withOpacity(0.18) : p.surface2,
+          color: selected ? c.withOpacity(0.16) : p.surface3,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: selected ? c : p.border),
         ),
@@ -77,8 +77,8 @@ class StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(6)),
-        child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+        decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(5)),
+        child: Text(label, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: color, letterSpacing: 0.4)),
       );
 }
 
@@ -98,18 +98,13 @@ class EmptyState extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(color: p.amber.withOpacity(0.10), shape: BoxShape.circle, border: Border.all(color: p.amber.withOpacity(0.25))),
-            child: Icon(icon, size: 32, color: p.amber),
-          ),
-          const SizedBox(height: 18),
-          Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          Opacity(opacity: 0.5, child: Icon(icon, size: 44, color: p.textTertiary)),
+          const SizedBox(height: 10),
+          Text(title, textAlign: TextAlign.center, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: p.textSecondary)),
           const SizedBox(height: 6),
-          Text(body, textAlign: TextAlign.center, style: TextStyle(color: p.textSecondary, height: 1.4)),
+          Text(body, textAlign: TextAlign.center, style: TextStyle(color: p.textTertiary, fontSize: 13, height: 1.5)),
           if (actionLabel != null) ...[
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
             FilledButton(onPressed: onAction, child: Text(actionLabel!)),
           ],
         ]),

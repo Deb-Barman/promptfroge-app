@@ -9,61 +9,49 @@ import '../ui/search_sheet.dart';
 import '../ui/theme/app_theme.dart';
 import '../ui/widgets/brand_logo.dart';
 
-/// Key of the shell Scaffold, so any screen can open the navigation drawer.
-final GlobalKey<ScaffoldState> shellScaffoldKey = GlobalKey<ScaffoldState>(debugLabel: 'pf-shell');
-
 class _Item {
   final IconData icon;
   final String label;
 
-  /// Index of a bottom-bar tab (goBranch) …
-  final int? tab;
-
-  /// … or a pushed route.
-  final String? route;
-  const _Item(this.icon, this.label, {this.tab, this.route});
+  final String route;
+  const _Item(this.icon, this.label, this.route);
 }
 
 // Same order as the original PromptForge.html side rail.
 const List<_Item> _main = [
-  _Item(Icons.space_dashboard_outlined, 'Dashboard', tab: 0),
-  _Item(Icons.edit_outlined, 'Editor', tab: 1),
-  _Item(Icons.view_agenda_outlined, 'Builder', tab: 3),
-  _Item(Icons.menu_book_outlined, 'Library', tab: 2),
-  _Item(Icons.vertical_split_outlined, 'Compare', route: '/compare'),
-  _Item(Icons.dashboard_customize_outlined, 'Templates', route: '/templates'),
-  _Item(Icons.bubble_chart_outlined, 'Patterns', route: '/patterns'),
-  _Item(Icons.account_tree_outlined, 'Chains', route: '/chains'),
-  _Item(Icons.history, 'History', route: '/history'),
-  _Item(Icons.bar_chart_rounded, 'Analytics', route: '/analytics'),
-  _Item(Icons.school_outlined, 'Learn', route: '/learn'),
+  _Item(Icons.space_dashboard_outlined, 'Dashboard', '/dashboard'),
+  _Item(Icons.edit_outlined, 'Editor', '/editor'),
+  _Item(Icons.view_agenda_outlined, 'Builder', '/builder'),
+  _Item(Icons.menu_book_outlined, 'Library', '/library'),
+  _Item(Icons.vertical_split_outlined, 'Compare', '/compare'),
+  _Item(Icons.dashboard_customize_outlined, 'Templates', '/templates'),
+  _Item(Icons.bubble_chart_outlined, 'Patterns', '/patterns'),
+  _Item(Icons.account_tree_outlined, 'Chains', '/chains'),
+  _Item(Icons.history, 'History', '/history'),
+  _Item(Icons.bar_chart_rounded, 'Analytics', '/analytics'),
+  _Item(Icons.school_outlined, 'Learn', '/learn'),
 ];
 
 const List<_Item> _extra = [
-  _Item(Icons.hub_outlined, 'Links graph', route: '/graph'),
-  _Item(Icons.event_note_outlined, 'Search by date', route: '/date-search'),
-  _Item(Icons.import_export, 'Import / Export', route: '/data'),
+  _Item(Icons.hub_outlined, 'Links graph', '/graph'),
+  _Item(Icons.event_note_outlined, 'Search by date', '/date-search'),
+  _Item(Icons.import_export, 'Import / Export', '/data'),
 ];
 
-const _Item _settings = _Item(Icons.settings_outlined, 'Settings', tab: 4);
+const _Item _settings = _Item(Icons.settings_outlined, 'Settings', '/settings');
 
 /// Slide-in navigation drawer that mirrors the side rail of the original web app.
 class AppDrawer extends ConsumerWidget {
-  final int currentTab;
-  final ValueChanged<int> onTab;
-  const AppDrawer({super.key, required this.currentTab, required this.onTab});
+  final String currentPath;
+  const AppDrawer({super.key, required this.currentPath});
 
   void _open(BuildContext context, _Item it) {
     Navigator.of(context).pop(); // close the drawer
-    if (it.tab != null) {
-      onTab(it.tab!);
-    } else if (it.route != null) {
-      context.push(it.route!);
-    }
+    if (it.route != currentPath) context.go(it.route);
   }
 
   Widget _tile(BuildContext context, PfPalette p, _Item it) {
-    final selected = it.tab != null && it.tab == currentTab;
+    final selected = it.route == currentPath;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1.5),
       child: Material(

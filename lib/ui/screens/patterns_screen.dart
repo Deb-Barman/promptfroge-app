@@ -7,6 +7,7 @@ import '../../domain/engines/template_engine.dart';
 import '../../domain/models.dart';
 import '../../state/vault_notifier.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 import '../widgets/fill_variables.dart';
 import '../widgets/groups_ui.dart';
@@ -25,6 +26,14 @@ class _PatternsScreenState extends ConsumerState<PatternsScreen> {
   String _tab = 'all'; // all | builtin | custom
   String? _groupId;
   final Set<String> _sel = {};
+  bool _selectMode = false;
+
+  bool get _selecting => _selectMode || _sel.isNotEmpty;
+
+  void _exitSelect() {
+    _sel.clear();
+    _selectMode = false;
+  }
 
   void _toggleSel(String id) => setState(() => _sel.contains(id) ? _sel.remove(id) : _sel.add(id));
 
@@ -41,7 +50,7 @@ class _PatternsScreenState extends ConsumerState<PatternsScreen> {
     for (final id in ids) {
       await vn.deletePattern(id);
     }
-    if (mounted) setState(_sel.clear);
+    if (mounted) setState(_exitSelect);
   }
 
   @override
@@ -155,66 +164,112 @@ class _PatternsScreenState extends ConsumerState<PatternsScreen> {
       return q.isEmpty || '${x.name} ${x.purpose} ${x.when} ${x.template}'.toLowerCase().contains(q);
     }).toList();
 
+    final nBuiltin = all.where((x) => x.builtin).length;
+    final nCustom = all.length - nBuiltin;
+
+    Widget tab(String id, String label, int n) {
+      final on = _tab == id;
+      return Expanded(
+        child: InkWell(
+          onTap: () => setState(() => _tab = id),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: on ? p.amber : p.borderSubtle, width: on ? 2 : 1))),
+            child: Text('$label ($n)', textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: on ? p.amber : p.textTertiary)),
+          ),
+        ),
+      );
+    }
+
+    final header = _selecting
+        ? Padding(
+            padding: const EdgeInsets.fromLTRB(0, 18, 0, 14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_sel.isEmpty ? 'Select patterns' : '${_sel.length} selected', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, letterSpacing: -0.3, color: p.text)),
+              const SizedBox(height: 14),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                PfBtn(label: 'Add to group', icon: Icons.folder_special_outlined, primary: true, onPressed: _sel.isEmpty ? null : () => showGroupMembership(context, kind: 'patterns', ids: _sel.toList())),
+                PfBtn(label: 'Delete custom', icon: Icons.delete_outline, onPressed: _sel.isEmpty ? null : _bulkDelete),
+                PfBtn(label: 'Done', onPressed: () => setState(_exitSelect)),
+              ]),
+            ]),
+          )
+        : PfPageHeader(
+            title: 'Pattern Library',
+            subtitle: '$nBuiltin built-in ${nBuiltin == 1 ? 'pattern' : 'patterns'}${nCustom > 0 ? ' · $nCustom of your own' : ''}',
+            actions: [
+              PfBtn(label: 'Select', onPressed: () => setState(() => _selectMode = true)),
+              PfBtn(label: 'Add Pattern', icon: Icons.add, primary: true, onPressed: () => _edit(null)),
+              PfIconBtn(icon: Icons.folder_special_outlined, tooltip: 'Manage groups', onPressed: () => showGroupsManager(context, kind: 'patterns', selectedId: _groupId, onSelect: (id) => setState(() => _groupId = id))),
+            ],
+          );
+
+    Widget card(PromptPattern x) {
+      final selected = _sel.contains(x.id);
+      return PfCard(
+        padding: const EdgeInsets.all(18),
+        onTap: _selecting ? () => _toggleSel(x.id) : () => _detail(x),
+        onLongPress: () => setState(() {
+          _selectMode = true;
+          _toggleSel(x.id);
+        }),
+        borderColor: selected ? p.amber : null,
+        color: selected ? p.amber.withOpacity(0.06) : null,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (_selecting) Padding(padding: const EdgeInsets.only(right: 10), child: Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked, size: 20, color: selected ? p.amber : p.textTertiary)),
+            Expanded(child: Text(x.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5, height: 1.3))),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(color: x.builtin ? p.surface3 : p.green.withOpacity(0.15), borderRadius: BorderRadius.circular(999)),
+              child: Text(x.builtin ? x.category.toUpperCase() : 'YOURS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: x.builtin ? p.textTertiary : p.green)),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Text(x.purpose, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: p.textTertiary, fontSize: 13.5, height: 1.5)),
+        ]),
+      );
+    }
+
     return Scaffold(
-      appBar: AppBar(
-          leading: _sel.isEmpty ? null : IconButton(icon: const Icon(Icons.close), onPressed: () => setState(_sel.clear)),
-          title: Text(_sel.isEmpty ? 'Patterns' : '${_sel.length} selected'),
-          actions: _sel.isNotEmpty
-              ? [
-                  IconButton(tooltip: 'Add to groups', icon: const Icon(Icons.folder_special_outlined), onPressed: () => showGroupMembership(context, kind: 'patterns', ids: _sel.toList())),
-                  IconButton(tooltip: 'Delete custom', icon: const Icon(Icons.delete_outline), onPressed: _bulkDelete),
-                ]
-              : [
-        IconButton(
-          tooltip: 'Manage groups',
-          icon: const Icon(Icons.folder_special_outlined),
-          onPressed: () => showGroupsManager(context, kind: 'patterns', selectedId: _groupId, onSelect: (id) => setState(() => _groupId = id)),
-        ),
-      ]),
-      floatingActionButton: FloatingActionButton.extended(onPressed: () => _edit(null), icon: const Icon(Icons.add), label: const Text('New pattern')),
-      body: Column(children: [
-        Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 8), child: SearchField(controller: _search, hint: 'Search patterns', onChanged: (v) => setState(() => _q = v))),
-        SizedBox(
-          height: 40,
-          child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16), children: [
-            for (final t in const [('all', 'All patterns'), ('builtin', 'Built-in'), ('custom', 'Yours')])
-              Padding(padding: const EdgeInsets.only(right: 8), child: PfChip(label: t.$2, selected: _tab == t.$1, color: p.blue, onTap: () => setState(() => _tab = t.$1))),
-          ]),
-        ),
-        GroupFilterBar(kind: 'patterns', selectedId: _groupId, onChanged: (id) => setState(() => _groupId = id)),
-        SizedBox(
-          height: 40,
-          child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16), children: [
-            for (final c in ['All', ...cats]) Padding(padding: const EdgeInsets.only(right: 8), child: PfChip(label: c, selected: _cat == c, color: p.amber, onTap: () => setState(() => _cat = c))),
-          ]),
-        ),
-        Expanded(
-          child: list.isEmpty
-              ? const EmptyState(icon: Icons.search_off, title: 'No patterns match', body: 'Try different words or another category.')
-              : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-                  itemCount: list.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (c, i) {
-                    final x = list[i];
-                    return PfCard(
-                      onTap: _sel.isNotEmpty ? () => _toggleSel(x.id) : () => _detail(x),
-                      onLongPress: () => _toggleSel(x.id),
-                      borderColor: _sel.contains(x.id) ? p.amber : null,
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Row(children: [
-                          Expanded(child: Text(x.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
-                          if (!x.builtin) const StatusBadge('Yours', Color(0xFF4FAE7A)),
-                        ]),
-                        const SizedBox(height: 4),
-                        Text(x.purpose, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: p.textSecondary, fontSize: 13)),
-                        const SizedBox(height: 6),
-                        Text('${x.category}${x.variables.isEmpty ? '' : ' · ${x.variables.length} variables'}', style: TextStyle(color: p.textTertiary, fontSize: 11.5)),
-                      ]),
-                    );
-                  },
+      backgroundColor: p.bg,
+      body: CustomScrollView(slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              header,
+              Row(children: [tab('all', 'All', all.length), tab('builtin', 'Built-in', nBuiltin), tab('custom', 'My Patterns', nCustom)]),
+              const SizedBox(height: 14),
+              Row(children: [
+                Expanded(flex: 3, child: SearchField(controller: _search, hint: 'Search patterns…', onChanged: (v) => setState(() => _q = v))),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: PfSelect<String>(
+                    value: _cat,
+                    options: [const MapEntry('All', 'All types'), for (final c in cats) MapEntry(c, c)],
+                    onChanged: (v) => setState(() => _cat = v),
+                  ),
                 ),
+              ]),
+              GroupFilterBar(kind: 'patterns', selectedId: _groupId, onChanged: (id) => setState(() => _groupId = id)),
+              const SizedBox(height: 14),
+            ]),
+          ),
         ),
+        if (list.isEmpty)
+          const SliverFillRemaining(hasScrollBody: false, child: EmptyState(icon: Icons.search_off, title: 'No patterns match', body: 'Try different words or another type.'))
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+            sliver: SliverList.separated(
+              itemCount: list.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (c, i) => card(list[i]),
+            ),
+          ),
       ]),
     );
   }

@@ -11,6 +11,7 @@ import '../../domain/models.dart';
 import '../../state/vault_notifier.dart';
 import '../export_helpers.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 
 /// Import, export and backup. Everything stays in the vault folder (`Exports/`) or goes through the
@@ -172,7 +173,7 @@ class _DataScreenState extends ConsumerState<DataScreen> {
       'history': null,
     };
     return Scaffold(
-      appBar: AppBar(title: const Text('Import & export')),
+      appBar: PfAppBar(title: const Text('Import & export'), subtitle: 'Back up your vault or bring prompts in from JSON.'),
       body: Stack(children: [
         ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 40), children: [
           Text('Your prompts already live as Markdown files in your vault folder. These tools make copies for sharing or moving between devices.', style: TextStyle(color: p.textSecondary, fontSize: 13)),

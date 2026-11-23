@@ -9,6 +9,7 @@ import '../../domain/models.dart';
 import '../../state/vault_notifier.dart';
 import '../../app/shell.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 
 class AnalyticsScreen extends ConsumerStatefulWidget {
@@ -31,17 +32,6 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
     final active = v.data.prompts.values.where((x) => !x.archived && x.body.trim().isNotEmpty);
     _scored = [for (final x in active) MapEntry(x, Analyzer.analyze(x.body, profileId: profile).overall)]..sort((a, b) => a.value.compareTo(b.value));
     _rev = v.revision;
-  }
-
-  Widget _tile(BuildContext context, String label, String value, {IconData? icon, Color? color}) {
-    final p = context.pf;
-    return PfCard(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [if (icon != null) Icon(icon, size: 16, color: color ?? p.amber), if (icon != null) const SizedBox(width: 6), Text(label, style: TextStyle(color: p.textSecondary, fontSize: 12))]),
-        const SizedBox(height: 6),
-        Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-      ]),
-    );
   }
 
   Widget _bars(BuildContext context, List<(String, int, Color)> rows) {
@@ -74,28 +64,24 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> {
     final maxDay = s.activity.fold<int>(1, (a, b) => b.count > a ? b.count : a);
 
     if (s.totalPrompts == 0) {
-      return Scaffold(appBar: AppBar(title: const Text('Analytics')), body: const EmptyState(icon: Icons.insights_outlined, title: 'No data yet', body: 'Write a few prompts and your stats appear here.'));
+      return Scaffold(appBar: PfAppBar(title: const Text('Analytics'), subtitle: 'Computed locally from your saved data — refreshes every time you visit.'), body: const EmptyState(icon: Icons.insights_outlined, title: 'No data yet', body: 'Write a few prompts and your stats appear here.'));
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('Analytics')),
+      appBar: PfAppBar(title: const Text('Analytics'), subtitle: 'Computed locally from your saved data — refreshes every time you visit.'),
       body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 40), children: [
-        GridView.count(
-          crossAxisCount: MediaQuery.of(context).size.width > 700 ? 4 : 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 2.1,
-          children: [
-            _tile(context, 'Prompts', '${s.totalPrompts}', icon: Icons.description_outlined),
-            _tile(context, 'Templates', '${s.totalTemplates}', icon: Icons.article_outlined, color: p.blue),
-            _tile(context, 'Total words', '${s.totalWords}', icon: Icons.text_snippet_outlined, color: p.green),
-            _tile(context, 'Avg. length', '${s.avgLen} w', icon: Icons.straighten, color: p.violet),
-            _tile(context, 'Favorites', '${s.favoriteCount}', icon: Icons.star_outline),
-            _tile(context, 'Snippets', '${s.totalSnippets}', icon: Icons.bolt, color: p.blue),
-            _tile(context, 'Avg. score', s.avgScore.toStringAsFixed(0), icon: Icons.speed, color: scoreColor(context, s.avgScore)),
-          ],
-        ),
+        PfStatCard(icon: Icons.description_outlined, value: '${s.totalPrompts}', label: 'Total prompts'),
+        const SizedBox(height: 12),
+        PfStatCard(icon: Icons.notes, value: '${s.avgLen}w', label: 'Avg. length'),
+        const SizedBox(height: 12),
+        PfStatCard(icon: Icons.star_outline, value: '${s.favoriteCount}', label: 'Favorites'),
+        const SizedBox(height: 12),
+        PfStatCard(icon: Icons.web_asset_outlined, value: '${s.totalTemplates}', label: 'Templates'),
+        const SizedBox(height: 12),
+        PfStatCard(icon: Icons.text_snippet_outlined, value: '${s.totalWords}', label: 'Total words'),
+        const SizedBox(height: 12),
+        PfStatCard(icon: Icons.bolt, value: '${s.totalSnippets}', label: 'Snippets'),
+        const SizedBox(height: 12),
+        PfStatCard(icon: Icons.speed, value: s.avgScore.toStringAsFixed(0), label: 'Avg. score'),
         const SectionTitle('Activity — last 14 days (prompts edited)'),
         PfCard(
           child: SizedBox(

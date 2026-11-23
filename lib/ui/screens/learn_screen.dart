@@ -6,6 +6,7 @@ import '../../core/util.dart';
 import '../../domain/models.dart';
 import '../../state/vault_notifier.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 
 class LearnScreen extends ConsumerWidget {
@@ -21,7 +22,7 @@ class LearnScreen extends ConsumerWidget {
     final attempts = settings.challengeAttempts;
     final solved = kChallenges.where((c) => progress[c.id] == true).length;
     return Scaffold(
-      appBar: AppBar(title: const Text('Learn')),
+      appBar: PfAppBar(title: const Text('Learn')),
       body: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 40), children: [
         Text('$solved of ${kChallenges.length} challenges completed', style: TextStyle(color: p.textSecondary)),
         const SectionTitle('Tips'),

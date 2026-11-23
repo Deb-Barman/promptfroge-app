@@ -8,6 +8,7 @@ import '../../domain/models.dart';
 import '../../state/vault_notifier.dart';
 import '../external_diff.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 import '../widgets/diff_view.dart';
 
@@ -61,7 +62,7 @@ class _CompareScreenState extends ConsumerState<CompareScreen> {
     final picker = [...selectedNotInPool, ...pool].take(18).toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Compare prompts'), actions: [
+      appBar: PfAppBar(title: const Text('Compare'), subtitle: 'Put saved prompts side-by-side with a word-level diff.', actions: [
         IconButton(tooltip: 'Diff pasted text', icon: const Icon(Icons.content_paste_go_outlined), onPressed: () => showExternalDiff(context, ref, initialPromptId: selected.isEmpty ? null : selected.first.id)),
         if (selected.length == 2)
           IconButton(

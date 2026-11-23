@@ -6,6 +6,7 @@ import '../../core/util.dart';
 import '../../domain/models.dart';
 import '../../state/vault_notifier.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 import '../widgets/fill_variables.dart';
 
@@ -20,7 +21,7 @@ class ChainsScreen extends ConsumerWidget {
     final d = ref.watch(vaultProvider).data;
     final chains = d.chains.values.toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return Scaffold(
-      appBar: AppBar(title: const Text('Chains')),
+      appBar: PfAppBar(title: const Text('Prompt Chains'), subtitle: 'Plan multi-step workflows — one prompt’s output feeding the next.'),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => showPfSheet<void>(context, title: 'New chain', full: true, builder: (_) => const _ChainForm()),
         icon: const Icon(Icons.add),
