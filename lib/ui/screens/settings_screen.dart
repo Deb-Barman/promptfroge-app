@@ -9,6 +9,7 @@ import '../../state/vault_notifier.dart';
 import '../more_menu.dart';
 import '../theme/app_theme.dart';
 import '../onboarding.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -37,7 +38,7 @@ class SettingsScreen extends ConsumerWidget {
     final selectedModel = allModels.any((e) => e.value == s.selectedModel) ? s.selectedModel : 'generic';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings'), actions: const [MoreMenuButton()]),
+      appBar: PfAppBar(title: const Text('Settings'), subtitle: 'Everything here is stored on this device only.', actions: const [MoreMenuButton()]),
       body: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 40), children: [
         const SectionTitle('Vault folder'),
         PfCard(
@@ -70,7 +71,7 @@ class SettingsScreen extends ConsumerWidget {
                 style: TextStyle(color: p.textTertiary, fontSize: 11.5)),
           ]),
         ),
-        const SectionTitle('Appearance (this device)'),
+        _SettingsGroup(title: 'Appearance (this device)', children: [
         dropdown<ThemeMode>(
           label: 'Theme',
           value: ds.themeMode,
@@ -79,7 +80,8 @@ class SettingsScreen extends ConsumerWidget {
         ),
         Text('Interface scale: ${(ds.uiScale * 100).round()}%', style: TextStyle(color: p.textSecondary, fontSize: 13)),
         Slider(value: ds.uiScale, min: 0.85, max: 1.3, divisions: 9, label: '${(ds.uiScale * 100).round()}%', onChanged: (v) => dev.update(ds.copyWith(uiScale: double.parse(v.toStringAsFixed(2))))),
-        const SectionTitle('Editor (this device)'),
+        ]),
+        _SettingsGroup(title: 'Editor (this device)', children: [
         dropdown<String>(
           label: 'Editor font',
           value: ds.editorFont,
@@ -123,14 +125,16 @@ class SettingsScreen extends ConsumerWidget {
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Line numbers'), value: ds.lineNumbers, onChanged: (v) => dev.update(ds.copyWith(lineNumbers: v))),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Word wrap'), value: ds.wordWrap, onChanged: (v) => dev.update(ds.copyWith(wordWrap: v))),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Syntax highlighting'), subtitle: const Text('Variables, headers, constraints, JSON, XML and Markdown'), value: ds.highlight, onChanged: (v) => dev.update(ds.copyWith(highlight: v))),
-        const SectionTitle('New prompts (stored in the vault)'),
+        ]),
+        _SettingsGroup(title: 'New prompts (stored in the vault)', children: [
         dropdown<String>(
           label: 'Default category for new prompts',
           value: kCategories.any((c) => c.id == s.defaultCategory) ? s.defaultCategory : 'custom',
           items: [for (final c in kCategories) DropdownMenuItem(value: c.id, child: Text(c.label))],
           onChanged: (v) => save(s.clone()..defaultCategory = v ?? 'custom'),
         ),
-        const SectionTitle('Analysis (stored in the vault)'),
+        ]),
+        _SettingsGroup(title: 'Analysis (stored in the vault)', children: [
         dropdown<String>(
           label: 'Model used for token and cost estimates',
           value: selectedModel,
@@ -155,7 +159,8 @@ class SettingsScreen extends ConsumerWidget {
           items: [for (final o in kOutputFormatHints) DropdownMenuItem(value: o.id, child: Text(o.label))],
           onChanged: (v) => save(s.clone()..outputFormatHint = v ?? 'none'),
         ),
-        const SectionTitle('Custom models'),
+        ]),
+        _SettingsGroup(title: 'Custom models', children: [
         Text('Add a model so token and cost estimates use its context window and price. Token counts for custom models are characters-per-token estimates.', style: TextStyle(color: p.textSecondary, fontSize: 12.5)),
         const SizedBox(height: 8),
         for (final m in s.customModels)
@@ -189,7 +194,8 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
         Align(alignment: Alignment.centerLeft, child: TextButton.icon(icon: const Icon(Icons.add), label: const Text('Add model'), onPressed: () => _editModel(context, ref, null))),
-        const SectionTitle('Data'),
+        ]),
+        _SettingsGroup(title: 'Data', children: [
         ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.import_export), title: const Text('Import, export & backup'), subtitle: const Text('JSON backups, single files, restore'), onTap: () => context.push('/data')),
         ListTile(
           contentPadding: EdgeInsets.zero,
@@ -201,7 +207,8 @@ class SettingsScreen extends ConsumerWidget {
             if (ok) await save(s.clone()..challengeProgress = <String, bool>{}..challengeAttempts = <String, ChallengeAttempt>{});
           },
         ),
-        const SectionTitle('Clear data'),
+        ]),
+        _SettingsGroup(title: 'Clear data', children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 6),
           child: Text('Deletes the matching files from your vault folder. This cannot be undone, so export a backup first if unsure.', style: TextStyle(color: p.textTertiary, fontSize: 12)),
@@ -244,6 +251,7 @@ class SettingsScreen extends ConsumerWidget {
           },
         ),
         ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.waving_hand_outlined), title: const Text('Replay welcome tour'), onTap: () => showWelcome(context, ref)),
+        ]),
         const SectionTitle('About'),
         PfCard(
           child: Text(
@@ -308,5 +316,31 @@ class SettingsScreen extends ConsumerWidget {
       s.customModels.add(m);
     }
     await vn.updateSettings(s);
+  }
+}
+
+/// A settings card: small uppercase label, then the rows (like the web app's settings sections).
+class _SettingsGroup extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+  const _SettingsGroup({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pf;
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Material(
+        color: p.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: p.borderSubtle)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            PfCardLabel(title.replaceAll(RegExp(r' \((this device|stored in the vault)\)'), '')),
+            ...children,
+          ]),
+        ),
+      ),
+    );
   }
 }

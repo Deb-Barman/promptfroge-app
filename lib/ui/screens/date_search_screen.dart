@@ -7,6 +7,7 @@ import '../../core/date_parse.dart';
 import '../../core/util.dart';
 import '../../state/vault_notifier.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 import '../widgets/fill_variables.dart';
 
@@ -177,7 +178,7 @@ class _DateSearchScreenState extends ConsumerState<DateSearchScreen> {
     final p = context.pf;
     final hits = _hits;
     return Scaffold(
-      appBar: AppBar(title: const Text('Search by date')),
+      appBar: PfAppBar(title: const Text('Search by date')),
       body: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 40), children: [
         SegmentedButton<bool>(
           segments: const [ButtonSegment(value: false, label: Text('On a date')), ButtonSegment(value: true, label: Text('Date range'))],

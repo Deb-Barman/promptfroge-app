@@ -8,9 +8,11 @@ import '../../domain/engines/template_engine.dart';
 import '../../domain/models.dart';
 import '../../state/vault_notifier.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 import '../widgets/fill_variables.dart';
 import '../widgets/groups_ui.dart';
+import '../new_template_dialog.dart';
 
 /// Templates (reusable prompts with {{variables}}) and snippets (/trigger text expansions).
 class TemplatesScreen extends ConsumerStatefulWidget {
@@ -26,6 +28,15 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
   String _cat = 'all';
   String? _groupId;
   final Set<String> _sel = {};
+  bool _selectMode = false;
+  int _tab = 0;
+
+  bool get _selecting => _selectMode || _sel.isNotEmpty;
+
+  void _exitSelect() {
+    _sel.clear();
+    _selectMode = false;
+  }
 
   void _toggleSel(String id) => setState(() => _sel.contains(id) ? _sel.remove(id) : _sel.add(id));
 
@@ -38,7 +49,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
     for (final id in ids) {
       templates ? await vn.deleteTemplate(id) : await vn.deleteSnippet(id);
     }
-    if (mounted) setState(_sel.clear);
+    if (mounted) setState(_exitSelect);
   }
 
   @override
@@ -77,126 +88,178 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     final snippets = d.snippets.values.where((s) => q.isEmpty || '${s.trigger} ${s.body}'.toLowerCase().contains(q)).toList()..sort((a, b) => a.trigger.compareTo(b.trigger));
 
-    return DefaultTabController(
-      length: 2,
-      child: Builder(builder: (context) {
-        final tabs = DefaultTabController.of(context);
-        return Scaffold(
-          appBar: AppBar(
-            leading: _sel.isEmpty ? null : IconButton(icon: const Icon(Icons.close), onPressed: () => setState(_sel.clear)),
-            title: Text(_sel.isEmpty ? 'Templates & snippets' : '${_sel.length} selected'),
-            actions: _sel.isNotEmpty
-                ? [
-                    if (tabs.index == 0) IconButton(tooltip: 'Add to groups', icon: const Icon(Icons.folder_special_outlined), onPressed: () => showGroupMembership(context, kind: 'templates', ids: _sel.toList())),
-                    IconButton(tooltip: 'Delete', icon: const Icon(Icons.delete_outline), onPressed: () => _bulkDelete(tabs.index == 0)),
-                  ]
-                : [
-              IconButton(
-                tooltip: 'Manage groups',
-                icon: const Icon(Icons.folder_special_outlined),
-                onPressed: () => showGroupsManager(context, kind: 'templates', selectedId: _groupId, onSelect: (id) => setState(() => _groupId = id)),
+    final mono = TextStyle(fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback);
+
+    Widget tagChip(String t) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(color: p.surface3, borderRadius: BorderRadius.circular(5), border: Border.all(color: p.borderSubtle)),
+          child: Text(t, style: mono.copyWith(fontSize: 11.5, color: p.textSecondary)),
+        );
+
+    Widget seg(int i, String label, int count) {
+      final on = _tab == i;
+      return Expanded(
+        child: InkWell(
+          onTap: () => setState(() {
+            _tab = i;
+            _exitSelect();
+          }),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: on ? p.amber : p.borderSubtle, width: on ? 2 : 1))),
+            child: Text('$label ($count)', textAlign: TextAlign.center, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: on ? p.amber : p.textTertiary)),
+          ),
+        ),
+      );
+    }
+
+    final header = _selecting
+        ? Padding(
+            padding: const EdgeInsets.fromLTRB(0, 18, 0, 14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_sel.isEmpty ? 'Select items' : '${_sel.length} selected', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, letterSpacing: -0.3, color: p.text)),
+              const SizedBox(height: 14),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                if (_tab == 0) PfBtn(label: 'Add to group', icon: Icons.folder_special_outlined, primary: true, onPressed: _sel.isEmpty ? null : () => showGroupMembership(context, kind: 'templates', ids: _sel.toList())),
+                PfBtn(label: 'Delete', icon: Icons.delete_outline, onPressed: _sel.isEmpty ? null : () => _bulkDelete(_tab == 0)),
+                PfBtn(label: 'Done', onPressed: () => setState(_exitSelect)),
+              ]),
+            ]),
+          )
+        : PfPageHeader(
+            title: _tab == 0 ? 'Templates' : 'Snippets',
+            subtitle: _tab == 0 ? 'Reusable prompts with {{variables}} you fill in through a form. ${templates.length} ${templates.length == 1 ? 'template' : 'templates'}' : 'Short /triggers that expand into longer text while you type. ${snippets.length} ${snippets.length == 1 ? 'snippet' : 'snippets'}',
+            actions: [
+              PfBtn(label: 'Select', onPressed: () => setState(() => _selectMode = true)),
+              PfBtn(label: _tab == 0 ? 'New Template' : 'New Snippet', icon: Icons.add, primary: true, onPressed: () => _tab == 0 ? showNewTemplateDialog(context, ref) : _editSnippet(null)),
+              PfIconBtn(icon: Icons.folder_special_outlined, tooltip: 'Manage groups', onPressed: () => showGroupsManager(context, kind: 'templates', selectedId: _groupId, onSelect: (id) => setState(() => _groupId = id))),
+            ],
+          );
+
+    Widget templateCard(Template t) {
+      final vars = TemplateEngine.extractVariables(t.body);
+      final selected = _sel.contains(t.id);
+      return PfCard(
+        padding: const EdgeInsets.all(18),
+        onTap: _selecting ? () => _toggleSel(t.id) : () => _use(t),
+        onLongPress: () => setState(() {
+          _selectMode = true;
+          _toggleSel(t.id);
+        }),
+        borderColor: selected ? p.amber : null,
+        color: selected ? p.amber.withOpacity(0.06) : null,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (_selecting) Padding(padding: const EdgeInsets.only(right: 10, top: 1), child: Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked, size: 20, color: selected ? p.amber : p.textTertiary)),
+            Expanded(child: Text(t.displayName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5, height: 1.3))),
+            if (!_selecting) ...[
+              InkWell(onTap: () => _edit(t), child: Padding(padding: const EdgeInsets.all(6), child: Icon(Icons.edit_outlined, size: 19, color: p.textSecondary))),
+              InkWell(
+                onTap: () async {
+                  final ok = await confirmDialog(context, title: 'Delete template?', message: '"${t.displayName}" is removed from your folder.', confirmLabel: 'Delete', destructive: true);
+                  if (ok) await ref.read(vaultProvider.notifier).deleteTemplate(t.id);
+                },
+                child: Padding(padding: const EdgeInsets.all(6), child: Icon(Icons.delete_outline, size: 19, color: p.textSecondary)),
               ),
             ],
-            bottom: const TabBar(tabs: [Tab(text: 'Templates'), Tab(text: 'Snippets')]),
-          ),
-          floatingActionButton: ListenableBuilder(
-            listenable: tabs,
-            builder: (context, _) => FloatingActionButton.extended(
-              onPressed: () => tabs.index == 0 ? _edit(null) : _editSnippet(null),
-              icon: const Icon(Icons.add),
-              label: Text(tabs.index == 0 ? 'New template' : 'New snippet'),
-            ),
-          ),
-          body: Column(children: [
-            Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 8), child: SearchField(controller: _search, hint: 'Search', onChanged: (v) => setState(() => _q = v))),
-            Expanded(
-              child: TabBarView(children: [
-                Column(children: [
-                  SizedBox(
-                    height: 40,
-                    child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16), children: [
-                      Padding(padding: const EdgeInsets.only(right: 8), child: PfChip(label: 'All', selected: _cat == 'all', color: p.amber, onTap: () => setState(() => _cat = 'all'))),
-                      for (final c in kCategories) Padding(padding: const EdgeInsets.only(right: 8), child: PfChip(label: c.label, selected: _cat == c.id, color: pfColor(c.color), onTap: () => setState(() => _cat = c.id))),
-                    ]),
-                  ),
-                  GroupFilterBar(kind: 'templates', selectedId: _groupId, onChanged: (id) => setState(() => _groupId = id)),
-                  Expanded(
-                    child: templates.isEmpty
-                        ? EmptyState(icon: Icons.article_outlined, title: 'No templates', body: 'Templates are prompts with {{variables}} you fill in each time. Save one from the editor menu or create one here.', actionLabel: 'New template', onAction: () => _edit(null))
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-                            itemCount: templates.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 8),
-                            itemBuilder: (c, i) {
-                              final t = templates[i];
-                              final vars = TemplateEngine.extractVariables(t.body);
-                              return PfCard(
-                                onTap: _sel.isNotEmpty ? () => _toggleSel(t.id) : () => _use(t),
-                                onLongPress: () => _toggleSel(t.id),
-                                borderColor: _sel.contains(t.id) ? p.amber : null,
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Row(children: [
-                                    Expanded(child: Text(t.displayName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
-                                    StatusBadge(categoryById(t.category).label, pfColor(categoryById(t.category).color)),
-                                    PopupMenuButton<String>(
-                                      onSelected: (v) async {
-                                        if (v == 'edit') _edit(t);
-                                        if (v == 'groups') await showGroupMembership(context, kind: 'templates', ids: [t.id]);
-                                        if (v == 'dup') await ref.read(vaultProvider.notifier).saveTemplate(Template(name: '${t.displayName} (copy)', body: t.body, category: t.category));
-                                        if (v == 'delete') {
-                                          final ok = await confirmDialog(context, title: 'Delete template?', message: '"${t.displayName}" is removed from your folder.', confirmLabel: 'Delete', destructive: true);
-                                          if (ok) await ref.read(vaultProvider.notifier).deleteTemplate(t.id);
-                                        }
-                                      },
-                                      itemBuilder: (_) => const [PopupMenuItem(value: 'edit', child: Text('Edit')), PopupMenuItem(value: 'dup', child: Text('Duplicate')), PopupMenuItem(value: 'groups', child: Text('Groups…')), PopupMenuItem(value: 'delete', child: Text('Delete'))],
-                                    ),
-                                  ]),
-                                  Text(Utils.truncate(t.body.replaceAll('\n', ' '), 140), maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: p.textSecondary, fontSize: 13)),
-                                  const SizedBox(height: 6),
-                                  Text('${vars.isEmpty ? 'No variables' : vars.map((v) => '{{$v}}').take(4).join('  ')} · used ${t.useCount}× · ${Utils.timeAgo(t.updatedAt)}', style: TextStyle(color: p.textTertiary, fontSize: 11.5)),
-                                ]),
-                              );
-                            },
-                          ),
-                  ),
-                ]),
-                snippets.isEmpty
-                    ? EmptyState(icon: Icons.bolt, title: 'No snippets', body: 'A snippet expands when you type its trigger (like /sig) in the editor.', actionLabel: 'New snippet', onAction: () => _editSnippet(null))
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-                        itemCount: snippets.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (c, i) {
-                          final s = snippets[i];
-                          return PfCard(
-                            onTap: _sel.isNotEmpty ? () => _toggleSel(s.id) : () => _editSnippet(s),
-                            onLongPress: () => _toggleSel(s.id),
-                            borderColor: _sel.contains(s.id) ? p.amber : null,
-                            child: Row(children: [
-                              Expanded(
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(s.trigger, style: TextStyle(color: p.amber, fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback, fontWeight: FontWeight.w700)),
-                                  const SizedBox(height: 4),
-                                  Text(Utils.truncate(s.body.replaceAll('\n', ' '), 120), maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: p.textSecondary, fontSize: 13)),
-                                  Text('used ${s.useCount}×', style: TextStyle(color: p.textTertiary, fontSize: 11.5)),
-                                ]),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline),
-                                onPressed: () async {
-                                  final ok = await confirmDialog(context, title: 'Delete snippet?', message: 'Snippet ${s.trigger} is removed.', confirmLabel: 'Delete', destructive: true);
-                                  if (ok) await ref.read(vaultProvider.notifier).deleteSnippet(s.id);
-                                },
-                              ),
-                            ]),
-                          );
-                        },
-                      ),
-              ]),
-            ),
           ]),
-        );
-      }),
+          const SizedBox(height: 8),
+          Text(Utils.truncate(t.body.replaceAll('\n', ' '), 170), maxLines: 3, overflow: TextOverflow.ellipsis, style: mono.copyWith(color: p.textTertiary, fontSize: 13.5, height: 1.55)),
+          if (vars.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(spacing: 6, runSpacing: 6, children: [for (final v in vars) tagChip('{{$v}}')]),
+          ],
+          const SizedBox(height: 12),
+          Row(children: [
+            Text('Used ${t.useCount}x', style: mono.copyWith(fontSize: 12, color: p.textTertiary)),
+            const Spacer(),
+            Text(Utils.formatDate(t.updatedAt), style: mono.copyWith(fontSize: 12, color: p.textTertiary)),
+          ]),
+        ]),
+      );
+    }
+
+    Widget snippetCard(Snippet s) {
+      final selected = _sel.contains(s.id);
+      return PfCard(
+        padding: const EdgeInsets.all(18),
+        onTap: _selecting ? () => _toggleSel(s.id) : () => _editSnippet(s),
+        onLongPress: () => setState(() {
+          _selectMode = true;
+          _toggleSel(s.id);
+        }),
+        borderColor: selected ? p.amber : null,
+        color: selected ? p.amber.withOpacity(0.06) : null,
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (_selecting) Padding(padding: const EdgeInsets.only(right: 10, top: 1), child: Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked, size: 20, color: selected ? p.amber : p.textTertiary)),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(s.trigger, style: mono.copyWith(color: p.amber, fontWeight: FontWeight.w700, fontSize: 14.5)),
+              const SizedBox(height: 6),
+              Text(Utils.truncate(s.body.replaceAll('\n', ' '), 150), maxLines: 3, overflow: TextOverflow.ellipsis, style: mono.copyWith(color: p.textTertiary, fontSize: 13.5, height: 1.55)),
+              const SizedBox(height: 10),
+              Text('Used ${s.useCount}x', style: mono.copyWith(fontSize: 12, color: p.textTertiary)),
+            ]),
+          ),
+          if (!_selecting)
+            InkWell(
+              onTap: () async {
+                final ok = await confirmDialog(context, title: 'Delete snippet?', message: 'Snippet ${s.trigger} is removed.', confirmLabel: 'Delete', destructive: true);
+                if (ok) await ref.read(vaultProvider.notifier).deleteSnippet(s.id);
+              },
+              child: Padding(padding: const EdgeInsets.all(6), child: Icon(Icons.delete_outline, size: 19, color: p.textSecondary)),
+            ),
+        ]),
+      );
+    }
+
+    final items = _tab == 0 ? templates.length : snippets.length;
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: CustomScrollView(slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              header,
+              Row(children: [seg(0, 'Templates', d.templates.length), seg(1, 'Snippets', d.snippets.length)]),
+              const SizedBox(height: 14),
+              Row(children: [
+                Expanded(flex: 3, child: SearchField(controller: _search, hint: _tab == 0 ? 'Search templates…' : 'Search snippets…', onChanged: (v) => setState(() => _q = v))),
+                if (_tab == 0) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 2,
+                    child: PfSelect<String>(
+                      value: _cat,
+                      options: [const MapEntry('all', 'All categories'), for (final c in kCategories) MapEntry(c.id, c.label)],
+                      onChanged: (v) => setState(() => _cat = v),
+                    ),
+                  ),
+                ],
+              ]),
+              if (_tab == 0) GroupFilterBar(kind: 'templates', selectedId: _groupId, onChanged: (id) => setState(() => _groupId = id)),
+              const SizedBox(height: 14),
+            ]),
+          ),
+        ),
+        if (items == 0)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: _tab == 0
+                ? EmptyState(icon: Icons.web_asset_outlined, title: 'No templates yet', body: 'Turn a prompt you write often into a reusable template with {{variables}}.', actionLabel: 'Create a template', onAction: () => showNewTemplateDialog(context, ref))
+                : EmptyState(icon: Icons.bolt, title: 'No snippets yet', body: 'A snippet expands when you type its trigger (like /sig) in the editor.', actionLabel: 'Create a snippet', onAction: () => _editSnippet(null)),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+            sliver: SliverList.separated(
+              itemCount: items,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (c, i) => _tab == 0 ? templateCard(templates[i]) : snippetCard(snippets[i]),
+            ),
+          ),
+      ]),
     );
   }
 }

@@ -7,6 +7,7 @@ import '../../domain/engines/graph_layout.dart';
 import '../../domain/engines/search_engine.dart';
 import '../../state/vault_notifier.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 
 /// Obsidian-style link overview of [[wiki link]] relationships: a pan/zoom force-directed graph (the original's
@@ -28,7 +29,7 @@ class _GraphScreenState extends ConsumerState<GraphScreen> {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(title: const Text('Prompt graph'), bottom: const TabBar(tabs: [Tab(text: 'Graph'), Tab(text: 'List')])),
+        appBar: PfAppBar(title: const Text('Prompt graph'), subtitle: 'How your prompts link to each other.', bottom: const TabBar(tabs: [Tab(text: 'Graph'), Tab(text: 'List')])),
         body: TabBarView(physics: const NeverScrollableScrollPhysics(), children: [
           _GraphCanvasTab(graph: g, onOpen: (id) => openInEditor(context, ref, promptId: id)),
           _list(context, g),

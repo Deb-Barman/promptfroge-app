@@ -7,6 +7,7 @@ import '../../domain/engines/analyzer.dart';
 import '../../domain/models.dart';
 import '../../state/vault_notifier.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 import '../widgets/diff_view.dart';
 
@@ -78,12 +79,12 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final vn = ref.read(vaultProvider.notifier);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Version history'),
+      appBar: PfAppBar(
+        title: const Text('History & Versions'), subtitle: 'Pick a prompt to see its saved versions, compare, and restore.',
         actions: [IconButton(tooltip: 'Choose prompt', icon: const Icon(Icons.swap_horiz), onPressed: _pickPrompt)],
       ),
       body: prompt == null
-          ? EmptyState(icon: Icons.history, title: 'Pick a prompt', body: 'Versions are saved with the editor’s “Save version” action and live inside your folder under .promptforge/versions.', actionLabel: 'Choose prompt', onAction: _pickPrompt)
+          ? EmptyState(icon: Icons.history, title: 'Select a prompt', body: 'Versions are saved with the editor’s “Save version” action and live inside your folder under .promptforge/versions.', actionLabel: 'Choose prompt', onAction: _pickPrompt)
           : FutureBuilder<List<PromptVersion>>(
               key: ValueKey('${prompt.id}-$_reload-${vault.revision}'),
               future: vn.versionsOf(prompt.id),

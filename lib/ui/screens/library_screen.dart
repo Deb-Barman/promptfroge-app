@@ -10,13 +10,14 @@ import '../../domain/engines/exporter.dart';
 import '../../domain/models.dart';
 import '../../state/vault_notifier.dart';
 import '../export_helpers.dart';
-import '../more_menu.dart';
 import '../search_sheet.dart';
 import '../theme/app_theme.dart';
 import '../external_diff.dart';
 import 'compare_screen.dart' show compareSelectionProvider;
 import '../widgets/common.dart';
 import '../widgets/groups_ui.dart';
+import '../new_prompt_dialog.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/prompt_card.dart';
 import '../../data/vault/vault_repository.dart' show VaultData;
 
@@ -38,7 +39,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   String? _groupId;
   final Set<String> _selected = {};
 
-  bool get _selecting => _selected.isNotEmpty;
+  bool _selectMode = false;
+  bool get _selecting => _selectMode || _selected.isNotEmpty;
+
+  void _exitSelect() {
+    _selected.clear();
+    _selectMode = false;
+  }
 
   @override
   void dispose() {
@@ -251,7 +258,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
               onTap: () async {
                 Navigator.pop(ctx);
                 await fn();
-                if (mounted) setState(_selected.clear);
+                if (mounted) setState(_exitSelect);
               },
             );
         return ListView(shrinkWrap: true, children: [
@@ -344,129 +351,185 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     final libGroups = d.groups.values.where((g) => g.kind == 'library').toList();
     final filtersActive = _tag.isNotEmpty || _favOnly || _groupId != null || _category != 'all' || _query.isNotEmpty;
 
+    Widget toggle(String label, bool on, VoidCallback onTap, {Color? color}) {
+      final c = color ?? p.amber;
+      return Material(
+        color: on ? c.withOpacity(0.16) : p.surface3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: on ? c : p.border)),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: on ? c : p.text)),
+          ),
+        ),
+      );
+    }
+
+    Widget tagChip(String t) {
+      final on = _tag == t;
+      return GestureDetector(
+        onTap: () => setState(() => _tag = on ? '' : t),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          decoration: BoxDecoration(
+            color: on ? p.blue.withOpacity(0.16) : p.surface3,
+            borderRadius: BorderRadius.circular(5),
+            border: Border.all(color: on ? p.blue : p.borderSubtle),
+          ),
+          child: Text('#$t', style: TextStyle(fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback, fontSize: 12, color: on ? p.blue : p.textSecondary)),
+        ),
+      );
+    }
+
+    final header = _selecting
+        ? Padding(
+            padding: const EdgeInsets.fromLTRB(0, 18, 0, 14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_selected.isEmpty ? 'Select prompts' : '${_selected.length} selected', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, letterSpacing: -0.3, color: p.text)),
+              const SizedBox(height: 4),
+              Text('Tap cards to select them, then add them to a group, tag, archive or delete — all at once.', style: TextStyle(fontSize: 13, color: p.textTertiary)),
+              const SizedBox(height: 14),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                PfBtn(label: 'Select all', icon: Icons.select_all, onPressed: () => setState(() => _selected.addAll(list.map((e) => e.id)))),
+                PfBtn(label: 'Add to group', icon: Icons.folder_special_outlined, primary: true, onPressed: _selected.isEmpty ? null : () => _groupMembershipSheet(_selected.toList())),
+                PfBtn(label: 'Actions', icon: Icons.more_horiz, onPressed: _selected.isEmpty ? null : _bulkMenu),
+                PfBtn(label: 'Done', onPressed: () => setState(_exitSelect)),
+              ]),
+            ]),
+          )
+        : PfPageHeader(
+            title: _showArchived ? 'Archive' : 'Library',
+            subtitle: '${list.length} ${list.length == 1 ? 'prompt' : 'prompts'}',
+            actions: [
+              PfBtn(label: 'Select', onPressed: () => setState(() => _selectMode = true)),
+              PfBtn(label: 'New Prompt', icon: Icons.add, primary: true, onPressed: () => showNewPromptDialog(context, ref)),
+            ],
+          );
+
+    final categoryOptions = <MapEntry<String, String>>[
+      const MapEntry('all', 'All categories'),
+      for (final c in kCategories)
+        if ((catCounts[c.id] ?? 0) > 0 || _category == c.id) MapEntry(c.id, '${c.label} (${catCounts[c.id] ?? 0})'),
+    ];
+
     return PopScope(
       canPop: !_selecting,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && _selecting) setState(_selected.clear);
+        if (!didPop && _selecting) setState(_exitSelect);
       },
       child: Scaffold(
-        appBar: _selecting
-            ? AppBar(
-                leading: IconButton(icon: const Icon(Icons.close), onPressed: () => setState(_selected.clear)),
-                title: Text('${_selected.length} selected'),
-                actions: [
-                  IconButton(
-                    tooltip: 'Select all',
-                    icon: const Icon(Icons.select_all),
-                    onPressed: () => setState(() => _selected.addAll(list.map((e) => e.id))),
-                  ),
-                  IconButton(tooltip: 'Actions', icon: const Icon(Icons.more_horiz), onPressed: _bulkMenu),
-                ],
-              )
-            : AppBar(
-                title: Text(_showArchived ? 'Archive' : 'Library'),
-                actions: [
-                  IconButton(tooltip: 'Search everything', icon: const Icon(Icons.manage_search), onPressed: () => showSearchSheet(context, ref)),
-                  IconButton(tooltip: 'Filter & sort', icon: Icon(Icons.tune, color: filtersActive ? p.amber : null), onPressed: () => _filterSheet(tags)),
-                  PopupMenuButton<String>(
-                    onSelected: (v) {
-                      if (v == 'groups') _groupsManager();
-                      if (v == 'extdiff') showExternalDiff(context, ref);
-                      if (v == 'searches') _savedSearches();
-                      if (v == 'dupes') _duplicates();
-                      if (v == 'archive') setState(() => _showArchived = !_showArchived);
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'groups', child: Text('Groups')),
-                      const PopupMenuItem(value: 'extdiff', child: Text('Diff pasted text…')),
-                      const PopupMenuItem(value: 'searches', child: Text('Saved searches')),
-                      const PopupMenuItem(value: 'dupes', child: Text('Find duplicates')),
-                      PopupMenuItem(value: 'archive', child: Text(_showArchived ? 'Show active' : 'Show archive')),
-                    ],
-                  ),
-                  const MoreMenuButton(),
-                ],
-              ),
-        floatingActionButton: _selecting
-            ? null
-            : FloatingActionButton.extended(
-                onPressed: () => openInEditor(context, ref),
-                icon: const Icon(Icons.add),
-                label: const Text('New prompt'),
-              ),
-        body: Column(children: [
-          Padding(padding: const EdgeInsets.fromLTRB(16, 4, 16, 8), child: SearchField(controller: _search, hint: 'Search prompts', onChanged: (v) => setState(() => _query = v))),
-          SizedBox(
-            height: 40,
-            child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16), children: [
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: PfChip(label: 'All ${catCounts.values.fold<int>(0, (a, b) => a + b)}', selected: _category == 'all', color: p.amber, onTap: () => setState(() => _category = 'all')),
-              ),
-              for (final c in kCategories)
-                if ((catCounts[c.id] ?? 0) > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: PfChip(label: '${c.label} ${catCounts[c.id]}', selected: _category == c.id, color: pfColor(c.color), onTap: () => setState(() => _category = c.id)),
-                  ),
-            ]),
-          ),
-          if (libGroups.isNotEmpty)
-            SizedBox(
-              height: 40,
-              child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16), children: [
-                for (final g in libGroups)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8, top: 4),
-                    child: PfChip(
-                      icon: Icons.folder_special_outlined,
-                      label: g.name,
-                      selected: _groupId == g.id,
-                      color: pfColor(g.color),
-                      onTap: () => setState(() => _groupId = _groupId == g.id ? null : g.id),
+        backgroundColor: p.bg,
+        body: CustomScrollView(slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                header,
+                Row(children: [
+                  Expanded(flex: 3, child: SearchField(controller: _search, hint: 'Search library…', onChanged: (v) => setState(() => _query = v))),
+                  const SizedBox(width: 10),
+                  Expanded(flex: 2, child: PfSelect<String>(value: _category, options: categoryOptions, onChanged: (v) => setState(() => _category = v))),
+                ]),
+                const SizedBox(height: 10),
+                Row(children: [
+                  Expanded(
+                    child: PfSelect<String>(
+                      value: _sort,
+                      options: const [MapEntry('updated', 'Recently updated'), MapEntry('created', 'Newest'), MapEntry('title', 'Title'), MapEntry('used', 'Most used')],
+                      onChanged: (v) => setState(() => _sort = v),
                     ),
                   ),
+                  const SizedBox(width: 10),
+                  PfIconBtn(icon: Icons.tune, tooltip: 'More filters', onPressed: () => _filterSheet(tags)),
+                  const SizedBox(width: 8),
+                  PopupMenuButton<String>(
+                    tooltip: 'More',
+                    onSelected: (v) {
+                      if (v == 'searches') _savedSearches();
+                      if (v == 'dupes') _duplicates();
+                      if (v == 'search') showSearchSheet(context, ref);
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'search', child: Text('Search everything')),
+                      PopupMenuItem(value: 'searches', child: Text('Saved searches')),
+                      PopupMenuItem(value: 'dupes', child: Text('Find duplicates')),
+                    ],
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(color: p.surface3, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.border)),
+                      child: Icon(Icons.more_horiz, size: 19, color: p.textSecondary),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  toggle('★ Favorites', _favOnly, () => setState(() => _favOnly = !_favOnly)),
+                  toggle('Archived', _showArchived, () => setState(() => _showArchived = !_showArchived)),
+                  toggle('Diff pasted text…', false, () => showExternalDiff(context, ref)),
+                ]),
+                if (tags.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Wrap(spacing: 6, runSpacing: 6, children: [for (final t in tags.take(30)) tagChip(t)]),
+                ],
+                const SizedBox(height: 12),
+                Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  for (final g in libGroups)
+                    toggle('● ${g.name}  ${g.memberIds.length}', _groupId == g.id, () => setState(() => _groupId = _groupId == g.id ? null : g.id), color: pfColor(g.color)),
+                  TextButton(onPressed: _groupsManager, child: const Text('Manage groups…', style: TextStyle(fontWeight: FontWeight.w600))),
+                ]),
+                const SizedBox(height: 8),
               ]),
             ),
-          Expanded(
-            child: list.isEmpty
-                ? EmptyState(
-                    icon: filtersActive ? Icons.search_off : Icons.folder_open,
-                    title: filtersActive ? 'Nothing matches' : (_showArchived ? 'Archive is empty' : 'No prompts yet'),
-                    body: filtersActive ? 'Clear a filter or try different search words.' : 'Create a prompt and it appears here as a Markdown file in your vault folder.',
-                    actionLabel: filtersActive ? 'Clear filters' : 'New prompt',
-                    onAction: () {
-                      if (filtersActive) {
-                        setState(() {
-                          _query = '';
-                          _search.clear();
-                          _category = 'all';
-                          _tag = '';
-                          _favOnly = false;
-                          _groupId = null;
-                        });
-                      } else {
-                        openInEditor(context, ref);
-                      }
-                    },
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-                    itemCount: list.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (c, i) {
-                      final x = list[i];
-                      return PromptCard(
-                        prompt: x,
-                        selected: _selected.contains(x.id),
-                        selectionMode: _selecting,
-                        onTap: () => _selecting ? _toggleSelect(x.id) : openInEditor(context, ref, promptId: x.id),
-                        onLongPress: () => _toggleSelect(x.id),
-                        onMenu: () => _cardMenu(x),
-                      );
-                    },
-                  ),
           ),
+          if (list.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: EmptyState(
+                icon: filtersActive ? Icons.search_off : Icons.delete_outline,
+                title: filtersActive ? 'Nothing matches' : (_showArchived ? 'Archive is empty' : 'Your library is empty'),
+                body: filtersActive ? 'Clear a filter or try different search words.' : 'Prompts you write and save will show up here, organized and searchable.',
+                actionLabel: filtersActive ? 'Clear filters' : 'Write your first prompt',
+                onAction: () {
+                  if (filtersActive) {
+                    setState(() {
+                      _query = '';
+                      _search.clear();
+                      _category = 'all';
+                      _tag = '';
+                      _favOnly = false;
+                      _groupId = null;
+                    });
+                  } else {
+                    openInEditor(context, ref);
+                  }
+                },
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+              sliver: SliverList.separated(
+                itemCount: list.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (c, i) {
+                  final x = list[i];
+                  return PromptCard(
+                    prompt: x,
+                    selected: _selected.contains(x.id),
+                    selectionMode: _selecting,
+                    onTap: () => _selecting ? _toggleSelect(x.id) : openInEditor(context, ref, promptId: x.id),
+                    onLongPress: () {
+                      setState(() => _selectMode = true);
+                      _toggleSelect(x.id);
+                    },
+                    onMenu: () => _cardMenu(x),
+                  );
+                },
+              ),
+            ),
         ]),
       ),
     );

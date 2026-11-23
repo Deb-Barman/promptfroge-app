@@ -9,8 +9,8 @@ import '../../core/util.dart';
 import '../../domain/engines/template_engine.dart';
 import '../../domain/models.dart';
 import '../../state/vault_notifier.dart';
-import '../more_menu.dart';
 import '../theme/app_theme.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
 import '../../data/vault/vault_repository.dart' show VaultData;
 
@@ -147,6 +147,15 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
     );
   }
 
+  Future<void> _applyStructure(_StructureRow s) async {
+    if (_hasText) {
+      final ok = await confirmDialog(context, title: 'Replace current canvas?', message: 'Applying "${s.name}" replaces the blocks on the canvas. Text you wrote in them will be lost.', confirmLabel: 'Replace', destructive: true);
+      if (!ok) return;
+    }
+    _applyDefs(s.blocks);
+    if (mounted) toast(context, 'Applied "${s.name}"');
+  }
+
   Future<void> _newStructure({required bool fromCanvas}) async {
     _syncTexts();
     final prefill = fromCanvas ? _blocks.map((b) => PromptBlock(type: b.type, label: b.label, color: b.color)).toList() : <PromptBlock>[];
@@ -251,28 +260,114 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
   @override
   Widget build(BuildContext context) {
     final p = context.pf;
+    final rows = _structures(ref.watch(vaultProvider).data);
+
+    Widget label(String t, {Widget? trailing}) => Padding(
+          padding: const EdgeInsets.only(top: 18, bottom: 8),
+          child: Row(children: [
+            Expanded(child: Text(t, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: p.textSecondary))),
+            if (trailing != null) trailing,
+          ]),
+        );
+
+    Widget structureRow(_StructureRow r) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Material(
+            color: p.surface,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _applyStructure(r),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: p.borderSubtle)),
+                child: Row(children: [
+                  Expanded(child: Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600))),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(color: r.builtin ? p.surface3 : p.green.withOpacity(0.15), borderRadius: BorderRadius.circular(999)),
+                    child: Text(r.builtin ? 'BUILT-IN' : 'YOURS', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: r.builtin ? p.textTertiary : p.green)),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+        );
+
+    Widget blockTypeRow(BlockType bt) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Material(
+            color: p.surface,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _addBlock(PromptBlock(type: bt.id)),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border(left: BorderSide(color: pfColor(bt.color), width: 3), top: BorderSide(color: p.borderSubtle), right: BorderSide(color: p.borderSubtle), bottom: BorderSide(color: p.borderSubtle)),
+                ),
+                child: Row(children: [
+                  Expanded(child: Text(bt.label, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600))),
+                  Icon(Icons.add, size: 17, color: p.textTertiary),
+                ]),
+              ),
+            ),
+          ),
+        );
+
+    final header = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        PfPageHeader(
+          title: 'Visual Builder',
+          subtitle: 'Add blocks from the palette, reorder them, then compose into a prompt.',
+          actions: [
+            PfBtn(label: 'Clear canvas', onPressed: _clear),
+            PfBtn(label: 'Send to Editor', icon: Icons.north_east, primary: true, onPressed: _compose),
+          ],
+        ),
+        label('Structures', trailing: IconButton(visualDensity: VisualDensity.compact, tooltip: 'New structure', icon: const Icon(Icons.add), onPressed: () => _newStructure(fromCanvas: false))),
+        for (final r in rows) structureRow(r),
+        OutlinedButton.icon(icon: const Icon(Icons.add, size: 18), label: const Text('New structure…'), onPressed: () => _newStructure(fromCanvas: false)),
+        label('Block types'),
+        for (final bt in kBlockTypes) blockTypeRow(bt),
+        OutlinedButton.icon(icon: const Icon(Icons.add, size: 18), label: const Text('Add your own section…'), onPressed: _addCustom),
+        label('Canvas'),
+        if (_blocks.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: p.border)),
+            child: Column(children: [
+              Icon(Icons.view_agenda_outlined, size: 34, color: p.textTertiary.withOpacity(0.6)),
+              const SizedBox(height: 8),
+              Text('Canvas is empty', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: p.textSecondary)),
+              const SizedBox(height: 4),
+              Text('Tap a block type or a structure above to start.', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: p.textTertiary)),
+            ]),
+          ),
+        const SizedBox(height: 4),
+      ]),
+    );
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Visual Builder'),
-        actions: [
-          IconButton(tooltip: 'Structures', icon: const Icon(Icons.dashboard_customize_outlined), onPressed: _structuresSheet),
-          IconButton(tooltip: 'Clear canvas', icon: const Icon(Icons.layers_clear_outlined), onPressed: _clear),
-          const MoreMenuButton(),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(onPressed: _compose, icon: const Icon(Icons.north_east), label: const Text('Send to Editor')),
-      body: _blocks.isEmpty
-          ? EmptyState(icon: Icons.view_agenda_outlined, title: 'Canvas is empty', body: 'Add blocks one at a time, or start from a structure such as CO-STAR or RTF.', actionLabel: 'Add a block', onAction: _addBlockSheet)
-          : ReorderableListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-              buildDefaultDragHandles: false,
-              itemCount: _blocks.length,
-              footer: Padding(
-                padding: const EdgeInsets.only(top: 8),
+      backgroundColor: p.bg,
+      body: ReorderableListView.builder(
+        header: header,
+        padding: const EdgeInsets.only(bottom: 32),
+        buildDefaultDragHandles: false,
+        itemCount: _blocks.length,
+        footer: _blocks.isEmpty
+            ? null
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: Row(children: [
                   Expanded(child: OutlinedButton.icon(icon: const Icon(Icons.add), label: const Text('Add block'), onPressed: _addBlockSheet)),
                   const SizedBox(width: 8),
-                  Expanded(child: OutlinedButton.icon(icon: const Icon(Icons.dashboard_customize_outlined), label: const Text('Structures'), onPressed: _structuresSheet)),
+                  Expanded(child: OutlinedButton.icon(icon: const Icon(Icons.bookmark_add_outlined), label: const Text('Save structure'), onPressed: () => _newStructure(fromCanvas: true))),
                 ]),
               ),
               onReorder: (oldI, newI) {
@@ -288,7 +383,7 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
                 final bt = blockTypeById(b.type);
                 return Padding(
                   key: ValueKey(b.id),
-                  padding: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                   child: Container(
                     decoration: BoxDecoration(
                       color: p.surface,
@@ -343,7 +438,7 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
                   ),
                 );
               },
-            ),
+      ),
     );
   }
 }

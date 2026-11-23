@@ -8,12 +8,12 @@ import '../../core/util.dart';
 import '../../domain/engines/analytics.dart';
 import '../../state/device_settings.dart';
 import '../../state/vault_notifier.dart';
-import '../more_menu.dart';
 import '../onboarding.dart';
 import '../quick_capture.dart';
-import '../search_sheet.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+import '../new_prompt_dialog.dart';
+import '../widgets/pf_chrome.dart';
 import '../widgets/prompt_card.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
@@ -26,6 +26,7 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   AnalyticsSummary? _cache;
   int _cacheRev = -1;
+  int _words = 0;
 
   @override
   void initState() {
@@ -41,6 +42,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final hub = ref.read(suggestionHubProvider);
     _cache = AnalyticsEngine.summary(s.data, hub.fresh(s), profileId: s.data.settings.scoringProfile);
     _cacheRev = s.revision;
+    var w = 0;
+    final ws = RegExp(r'\S+');
+    for (final x in s.data.prompts.values) {
+      w += ws.allMatches(x.body).length;
+    }
+    _words = w;
     return _cache!;
   }
 
@@ -59,42 +66,63 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     void open(String id) => openInEditor(context, ref, promptId: id);
 
+    String ago(int ms) {
+      final d = DateTime.now().millisecondsSinceEpoch - ms;
+      if (d < 60000) return 'just now';
+      if (d < 3600000) return '${d ~/ 60000}m ago';
+      if (d < 86400000) return '${d ~/ 3600000}h ago';
+      return '${d ~/ 86400000}d ago';
+    }
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Prompt Forge'),
-        actions: [
-          IconButton(tooltip: 'Quick capture', icon: const Icon(Icons.bolt), onPressed: () => showQuickCapture(context, ref)),
-          IconButton(tooltip: 'Search', icon: const Icon(Icons.search), onPressed: () => showSearchSheet(context, ref)),
-          const MoreMenuButton(),
-        ],
-      ),
+      backgroundColor: p.bg,
       body: RefreshIndicator(
         onRefresh: () => ref.read(vaultProvider.notifier).rescan(),
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
           children: [
-            GridView.count(
-              crossAxisCount: MediaQuery.of(context).size.width > 700 ? 4 : 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 2.0,
-              children: [
-                _Stat('Prompts', '${sum.totalPrompts}', Icons.description_outlined, p.amber),
-                _Stat('Templates', '${sum.totalTemplates}', Icons.article_outlined, p.blue),
-                _Stat('Avg quality', sum.totalPrompts == 0 ? '—' : sum.avgScore.round().toString(), Icons.speed, scoreColor(context, sum.avgScore)),
-                _Stat('Favorites', '${sum.favoriteCount}', Icons.star_outline, p.violet),
+            PfPageHeader(
+              title: 'Dashboard',
+              subtitle: 'Everything lives on this device — nothing here is sent anywhere.',
+              actions: [
+                PfIconBtn(icon: Icons.calendar_today_outlined, tooltip: 'Search by date', onPressed: () => context.go('/date-search')),
+                PfIconBtn(icon: Icons.hub_outlined, tooltip: 'Prompt graph', onPressed: () => context.go('/graph')),
+                PfIconBtn(icon: Icons.bolt, tooltip: 'Quick capture', onPressed: () => showQuickCapture(context, ref)),
+                PfBtn(label: 'New Prompt', icon: Icons.add, primary: true, onPressed: () => showNewPromptDialog(context, ref)),
               ],
             ),
-            const SectionTitle('Quick actions'),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              _Action(Icons.add, 'New prompt', () => openInEditor(context, ref)),
-              _Action(Icons.article_outlined, 'From template', () => context.push('/templates')),
-              _Action(Icons.view_agenda_outlined, 'Builder', () => context.go('/builder')),
-              _Action(Icons.pattern, 'Patterns', () => context.push('/patterns')),
-              _Action(Icons.import_export, 'Import', () => context.push('/data')),
-            ]),
+            if (recent.isNotEmpty) ...[
+              PfCard(
+                onTap: () => open(recent.first.id),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const PfCardLabel('Continue where you left off'),
+                  Text(recent.first.displayTitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 2),
+                  Text(ago(recent.first.updatedAt), style: TextStyle(fontSize: 13, color: p.textSecondary)),
+                ]),
+              ),
+              const SizedBox(height: 12),
+            ],
+            PfStatCard(icon: Icons.description_outlined, value: '${sum.totalPrompts}', label: 'Prompts'),
+            const SizedBox(height: 12),
+            PfStatCard(icon: Icons.web_asset_outlined, value: '${sum.totalTemplates}', label: 'Templates'),
+            const SizedBox(height: 12),
+            PfStatCard(icon: Icons.data_object, value: '${data.snippets.length}', label: 'Snippets'),
+            const SizedBox(height: 12),
+            PfStatCard(icon: Icons.notes, value: '$_words', label: 'Words written'),
+            const SizedBox(height: 12),
+            PfCard(
+              padding: const EdgeInsets.all(20),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const PfCardLabel('Quick actions'),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  PfBtn(label: 'From template', icon: Icons.web_asset_outlined, onPressed: () => context.go('/templates')),
+                  PfBtn(label: 'Builder', icon: Icons.view_agenda_outlined, onPressed: () => context.go('/builder')),
+                  PfBtn(label: 'Patterns', icon: Icons.bubble_chart_outlined, onPressed: () => context.go('/patterns')),
+                  PfBtn(label: 'Import', icon: Icons.file_upload_outlined, onPressed: () => context.go('/data')),
+                ]),
+              ]),
+            ),
             if (revisit.isNotEmpty) ...[
               const SectionTitle('Needs revisit'),
               for (final x in revisit.take(3))
@@ -120,7 +148,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               for (final x in pinned.take(4))
                 Padding(padding: const EdgeInsets.only(bottom: 8), child: PromptCard(prompt: x, onTap: () => open(x.id))),
             ],
-            SectionTitle('Recent activity', trailing: TextButton(onPressed: () => context.go('/library'), child: const Text('See all'))),
+            SectionTitle('Recently edited', trailing: TextButton(onPressed: () => context.go('/library'), child: const Text('See all'))),
             if (recent.isEmpty)
               const EmptyState(
                 icon: Icons.edit_note,
@@ -129,7 +157,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               )
             else
               for (final x in recent) Padding(padding: const EdgeInsets.only(bottom: 8), child: PromptCard(prompt: x, onTap: () => open(x.id))),
-            const SectionTitle('Last 14 days'),
+            const SectionTitle('Activity — last 14 days'),
             PfCard(
               child: SizedBox(
                 height: 96,
@@ -203,48 +231,4 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ),
     );
   }
-}
-
-class _Stat extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-  const _Stat(this.label, this.value, this.icon, this.color);
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.pf;
-    return PfCard(
-      child: Row(children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(color: color.withOpacity(0.14), borderRadius: BorderRadius.circular(10)),
-          child: Icon(icon, color: color, size: 20),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-            Text(label, style: TextStyle(fontSize: 12, color: p.textTertiary)),
-          ]),
-        ),
-      ]),
-    );
-  }
-}
-
-class _Action extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  const _Action(this.icon, this.label, this.onTap);
-
-  @override
-  Widget build(BuildContext context) => ActionChip(
-        avatar: Icon(icon, size: 16, color: context.pf.amber),
-        label: Text(label),
-        onPressed: onTap,
-      );
 }
