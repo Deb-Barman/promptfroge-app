@@ -19,6 +19,7 @@ import '../ui/screens/patterns_screen.dart';
 import '../ui/screens/settings_screen.dart';
 import '../ui/screens/templates_screen.dart';
 import '../ui/screens/vault_setup_screen.dart';
+import '../ui/widgets/pf_chrome.dart';
 import 'shell.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -50,16 +51,16 @@ final routerProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(routes: [GoRoute(path: '/settings', builder: (c, s) => const SettingsScreen())]),
         ],
       ),
-      GoRoute(path: '/templates', builder: (c, s) => const TemplatesScreen()),
-      GoRoute(path: '/patterns', builder: (c, s) => const PatternsScreen()),
-      GoRoute(path: '/chains', builder: (c, s) => const ChainsScreen()),
-      GoRoute(path: '/history', builder: (c, s) => HistoryScreen(initialPromptId: s.uri.queryParameters['id'])),
-      GoRoute(path: '/analytics', builder: (c, s) => const AnalyticsScreen()),
-      GoRoute(path: '/compare', builder: (c, s) => const CompareScreen()),
-      GoRoute(path: '/learn', builder: (c, s) => const LearnScreen()),
-      GoRoute(path: '/graph', builder: (c, s) => const GraphScreen()),
-      GoRoute(path: '/data', builder: (c, s) => const DataScreen()),
-      GoRoute(path: '/date-search', builder: (c, s) => const DateSearchScreen()),
+      GoRoute(path: '/templates', builder: (c, s) => PfChrome(currentPath: '/templates', child: const TemplatesScreen())),
+      GoRoute(path: '/patterns', builder: (c, s) => PfChrome(currentPath: '/patterns', child: const PatternsScreen())),
+      GoRoute(path: '/chains', builder: (c, s) => PfChrome(currentPath: '/chains', child: const ChainsScreen())),
+      GoRoute(path: '/history', builder: (c, s) => PfChrome(currentPath: '/history', child: HistoryScreen(initialPromptId: s.uri.queryParameters['id']))),
+      GoRoute(path: '/analytics', builder: (c, s) => PfChrome(currentPath: '/analytics', child: const AnalyticsScreen())),
+      GoRoute(path: '/compare', builder: (c, s) => PfChrome(currentPath: '/compare', child: const CompareScreen())),
+      GoRoute(path: '/learn', builder: (c, s) => PfChrome(currentPath: '/learn', child: const LearnScreen())),
+      GoRoute(path: '/graph', builder: (c, s) => PfChrome(currentPath: '/graph', child: const GraphScreen())),
+      GoRoute(path: '/data', builder: (c, s) => PfChrome(currentPath: '/data', child: const DataScreen())),
+      GoRoute(path: '/date-search', builder: (c, s) => PfChrome(currentPath: '/date-search', child: const DateSearchScreen())),
     ],
   );
 });
