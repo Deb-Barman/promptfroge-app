@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 
-/// Prompt Forge design tokens (premium dark developer workspace; amber + blue accents).
+/// Prompt Forge design tokens — taken 1:1 from the CSS variables of the original PromptForge.html.
 class PfPalette {
   final Brightness brightness;
-  final Color bg;
-  final Color surface;
-  final Color surface2;
-  final Color border;
+  final Color bg; // --bg-0
+  final Color surface; // --bg-1 (cards, bars)
+  final Color surface2; // --bg-2
+  final Color surface3; // --bg-3 (secondary buttons, tags)
+  final Color raised; // --bg-raised
+  final Color borderSubtle; // --border-subtle (cards, bars)
+  final Color border; // --border (controls)
+  final Color borderStrong; // --border-strong
   final Color text;
   final Color textSecondary;
   final Color textTertiary;
@@ -22,7 +26,11 @@ class PfPalette {
     required this.bg,
     required this.surface,
     required this.surface2,
+    required this.surface3,
+    required this.raised,
+    required this.borderSubtle,
     required this.border,
+    required this.borderStrong,
     required this.text,
     required this.textSecondary,
     required this.textTertiary,
@@ -38,34 +46,42 @@ class PfPalette {
     brightness: Brightness.dark,
     bg: Color(0xFF0B0D10),
     surface: Color(0xFF12151A),
-    surface2: Color(0xFF181C22),
-    border: Color(0xFF242932),
-    text: Color(0xFFE6E8EB),
-    textSecondary: Color(0xFFA0A7B2),
-    textTertiary: Color(0xFF7A8290),
+    surface2: Color(0xFF171B22),
+    surface3: Color(0xFF1E232B),
+    raised: Color(0xFF21262F),
+    borderSubtle: Color(0xFF232830),
+    border: Color(0xFF2C323C),
+    borderStrong: Color(0xFF3A4150),
+    text: Color(0xFFE7EAEE),
+    textSecondary: Color(0xFFA8B0BC),
+    textTertiary: Color(0xFF6B7280),
     amber: Color(0xFFE8A33D),
     blue: Color(0xFF5B8DEF),
     green: Color(0xFF4FAE7A),
     red: Color(0xFFE55A5A),
     violet: Color(0xFF9B7FE0),
-    editorBg: Color(0xFF0E1115),
+    editorBg: Color(0xFF0D1013),
   );
 
   static const light = PfPalette(
     brightness: Brightness.light,
     bg: Color(0xFFF5F6F8),
     surface: Color(0xFFFFFFFF),
-    surface2: Color(0xFFF0F2F5),
-    border: Color(0xFFE1E4EA),
-    text: Color(0xFF14171C),
-    textSecondary: Color(0xFF4A515C),
-    textTertiary: Color(0xFF7A8290),
-    amber: Color(0xFFC98712),
-    blue: Color(0xFF3B6FD6),
-    green: Color(0xFF2F8F5B),
-    red: Color(0xFFD14343),
-    violet: Color(0xFF7A5CC9),
-    editorBg: Color(0xFFFBFBFC),
+    surface2: Color(0xFFFBFBFC),
+    surface3: Color(0xFFF0F1F4),
+    raised: Color(0xFFFFFFFF),
+    borderSubtle: Color(0xFFE7E9ED),
+    border: Color(0xFFDBDEE4),
+    borderStrong: Color(0xFFC3C7D0),
+    text: Color(0xFF1A1D23),
+    textSecondary: Color(0xFF545B68),
+    textTertiary: Color(0xFF868D99),
+    amber: Color(0xFFE8A33D),
+    blue: Color(0xFF5B8DEF),
+    green: Color(0xFF4FAE7A),
+    red: Color(0xFFE55A5A),
+    violet: Color(0xFF9B7FE0),
+    editorBg: Color(0xFFFFFFFF),
   );
 }
 
@@ -118,41 +134,57 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: p.surface2,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: p.border)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: p.border)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: p.amber, width: 1.4)),
+        fillColor: p.surface,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: p.border)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: p.border)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: p.blue, width: 1.2)),
         hintStyle: TextStyle(color: p.textTertiary),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: p.amber,
-          foregroundColor: p.brightness == Brightness.dark ? const Color(0xFF1A1305) : Colors.white,
-          minimumSize: const Size(44, 46),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          foregroundColor: const Color(0xFF1A1206),
+          minimumSize: const Size(44, 42),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: p.text,
-          minimumSize: const Size(44, 46),
+          backgroundColor: p.surface3,
+          minimumSize: const Size(44, 42),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
           side: BorderSide(color: p.border),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
       textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: p.amber)),
       chipTheme: base.chipTheme.copyWith(
-        backgroundColor: p.surface2,
+        backgroundColor: p.surface3,
         side: BorderSide(color: p.border),
-        labelStyle: TextStyle(color: p.textSecondary, fontSize: 12.5),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        labelStyle: TextStyle(color: p.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w500),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: p.surface,
         surfaceTintColor: Colors.transparent,
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        shape: RoundedRectangleBorder(borderRadius: const BorderRadius.vertical(top: Radius.circular(16)), side: BorderSide(color: p.border)),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: p.surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: p.border)),
+      ),
+      tabBarTheme: TabBarThemeData(
+        labelColor: p.amber,
+        unselectedLabelColor: p.textTertiary,
+        indicatorColor: p.amber,
+        dividerColor: p.borderSubtle,
+        labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: p.surface2,
