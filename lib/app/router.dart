@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -19,6 +21,7 @@ import '../ui/screens/patterns_screen.dart';
 import '../ui/screens/settings_screen.dart';
 import '../ui/screens/templates_screen.dart';
 import '../ui/screens/vault_setup_screen.dart';
+import '../ui/widgets/brand_logo.dart';
 import '../ui/widgets/pf_chrome.dart';
 import 'shell.dart';
 
@@ -29,12 +32,22 @@ final routerProvider = Provider<GoRouter>((ref) {
   });
   ref.onDispose(refresh.dispose);
 
+  // Keep the branded loading screen up for a few seconds on every launch so it can actually be seen.
+  if (ref.read(splashHoldProvider)) {
+    final splashTimer = Timer(kSplashDuration, () {
+      ref.read(splashHoldProvider.notifier).state = false;
+      refresh.value++;
+    });
+    ref.onDispose(splashTimer.cancel);
+  }
+
   return GoRouter(
     initialLocation: '/dashboard',
     refreshListenable: refresh,
     redirect: (context, state) {
       final ready = ref.read(vaultProvider).isReady;
       final atSetup = state.matchedLocation == '/vault';
+      if (ref.read(splashHoldProvider)) return atSetup ? null : '/vault';
       if (!ready && !atSetup) return '/vault';
       if (ready && atSetup) return '/dashboard';
       return null;

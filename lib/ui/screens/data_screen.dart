@@ -177,7 +177,7 @@ class _DataScreenState extends ConsumerState<DataScreen> {
       body: Stack(children: [
         ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 40), children: [
           Text('Your prompts already live as Markdown files in your vault folder. These tools make copies for sharing or moving between devices.', style: TextStyle(color: p.textSecondary, fontSize: 13)),
-          const SectionTitle('Export selection'),
+          _DataGroup(title: 'Export selection', children: [
           Wrap(spacing: 8, runSpacing: 8, children: [
             for (final k in Exporter.allKinds)
               FilterChip(
@@ -196,16 +196,19 @@ class _DataScreenState extends ConsumerState<DataScreen> {
           if (_format != 'csv') TextField(controller: _cover, minLines: 1, maxLines: 3, decoration: const InputDecoration(labelText: 'Cover note (optional)')),
           const SizedBox(height: 12),
           FilledButton.icon(icon: const Icon(Icons.ios_share, size: 18), label: const Text('Export & share'), onPressed: _kinds.isEmpty || _busy ? null : _export),
-          const SectionTitle('Full backup (JSON)'),
+          ]),
+          _DataGroup(title: 'Full backup (JSON)', children: [
           Text('Everything — prompts, templates, patterns, chains, snippets, groups, saved searches, structures and version history — in one file. Compatible with backups from the original Prompt Forge web app.', style: TextStyle(color: p.textSecondary, fontSize: 13)),
           const SizedBox(height: 8),
           OutlinedButton.icon(icon: const Icon(Icons.backup_outlined, size: 18), label: const Text('Create backup'), onPressed: _busy ? null : _backup),
-          const SectionTitle('Restore a backup'),
+          ]),
+          _DataGroup(title: 'Restore a backup', children: [
           Wrap(spacing: 8, runSpacing: 8, children: [
             OutlinedButton.icon(icon: const Icon(Icons.upload_file, size: 18), label: const Text('Choose file…'), onPressed: _busy ? null : () => _restore(fromPaste: false)),
             OutlinedButton.icon(icon: const Icon(Icons.content_paste, size: 18), label: const Text('Paste JSON…'), onPressed: _busy ? null : () => _restore(fromPaste: true)),
           ]),
-          const SectionTitle('Import records'),
+          ]),
+          _DataGroup(title: 'Import records', children: [
           Text('Add prompts, templates or patterns from a JSON file. Common field names are recognised.', style: TextStyle(color: p.textSecondary, fontSize: 13)),
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 8, children: [
@@ -223,9 +226,26 @@ class _DataScreenState extends ConsumerState<DataScreen> {
             padding: const EdgeInsets.only(top: 8),
             child: Text('Tip: you can also copy .md files straight into the vault folder with any file manager, then pull down to refresh the Library.', style: TextStyle(color: p.textTertiary, fontSize: 11.5)),
           ),
+          ]),
         ]),
         if (_busy) const Positioned.fill(child: ColoredBox(color: Color(0x66000000), child: Center(child: CircularProgressIndicator()))),
       ]),
     );
   }
+}
+
+/// A card section (small uppercase label + content), like the web app's settings sections.
+class _DataGroup extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+  const _DataGroup({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: 14),
+        child: PfCard(
+          padding: const EdgeInsets.all(18),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [PfCardLabel(title), ...children]),
+        ),
+      );
 }

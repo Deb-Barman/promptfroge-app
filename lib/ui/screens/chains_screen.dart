@@ -21,18 +21,22 @@ class ChainsScreen extends ConsumerWidget {
     final d = ref.watch(vaultProvider).data;
     final chains = d.chains.values.toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return Scaffold(
-      appBar: PfAppBar(title: const Text('Prompt Chains'), subtitle: 'Plan multi-step workflows — one prompt’s output feeding the next.'),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => showPfSheet<void>(context, title: 'New chain', full: true, builder: (_) => const _ChainForm()),
-        icon: const Icon(Icons.add),
-        label: const Text('New chain'),
-      ),
-      body: chains.isEmpty
-          ? const EmptyState(icon: Icons.account_tree_outlined, title: 'No chains yet', body: 'A chain strings saved prompts together as steps — for example outline → draft → critique.')
+      backgroundColor: p.bg,
+      body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: PfPageHeader(
+            title: 'Prompt Chains',
+            subtitle: 'Plan multi-step workflows — one prompt’s output feeding the next. A planning artifact, not an execution engine: nothing here calls any model.',
+            actions: [PfBtn(label: 'New Chain', icon: Icons.add, primary: true, onPressed: () => showPfSheet<void>(context, title: 'New chain', full: true, builder: (_) => const _ChainForm()))],
+          ),
+        ),
+        Expanded(child: chains.isEmpty
+          ? EmptyState(actionLabel: 'Create your first chain', onAction: () => showPfSheet<void>(context, title: 'New chain', full: true, builder: (_) => const _ChainForm()), icon: Icons.account_tree_outlined, title: 'No chains yet', body: 'A chain strings saved prompts together as steps — for example outline → draft → critique.')
           : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
               itemCount: chains.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (c, i) {
                 final ch = chains[i];
                 final missing = ch.steps.where((s) => s.promptId == null || !d.prompts.containsKey(s.promptId)).length;
@@ -58,7 +62,8 @@ class ChainsScreen extends ConsumerWidget {
                   ]),
                 );
               },
-            ),
+            )),
+      ]),
     );
   }
 }

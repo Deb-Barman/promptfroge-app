@@ -358,3 +358,30 @@ class PfCardLabel extends StatelessWidget {
         child: Text(text.toUpperCase(), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.0, color: context.pf.textTertiary)),
       );
 }
+
+
+/// Underline tabs like the web app's `.tabs` (used instead of Material's SegmentedButton).
+class PfTabs<T> extends StatelessWidget {
+  final T value;
+  final List<MapEntry<T, String>> options;
+  final ValueChanged<T> onChanged;
+  const PfTabs({super.key, required this.value, required this.options, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pf;
+    return Row(children: [
+      for (final o in options)
+        Expanded(
+          child: InkWell(
+            onTap: () => onChanged(o.key),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 4),
+              decoration: BoxDecoration(border: Border(bottom: BorderSide(color: o.key == value ? p.amber : p.borderSubtle, width: o.key == value ? 2 : 1))),
+              child: Text(o.value, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: o.key == value ? p.amber : p.textTertiary)),
+            ),
+          ),
+        ),
+    ]);
+  }
+}

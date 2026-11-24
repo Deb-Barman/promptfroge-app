@@ -63,6 +63,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
   Timer? _scoreTimer;
   int? _liveScore;
   bool _insights = false;
+  bool _showMeta = false;
   Prompt? _conflict;
 
   // find & replace
@@ -766,7 +767,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     final kbOpen = View.of(context).viewInsets.bottom > 0;
     MediaQuery.of(context); // rebuild when the keyboard opens/closes
     final trailing = <Widget>[
-      Container(width: 1, height: 22, margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 9), color: p.border),
       IconButton(tooltip: 'Find & replace', visualDensity: VisualDensity.compact, icon: const Icon(Icons.search, size: 20), onPressed: () => _menu('find')),
       ValueListenableBuilder<UndoHistoryValue>(
         valueListenable: _undo,
@@ -775,6 +775,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
           IconButton(tooltip: 'Redo', visualDensity: VisualDensity.compact, icon: const Icon(Icons.redo, size: 20), onPressed: v.canRedo ? _undo.redo : null),
         ]),
       ),
+      IconButton(tooltip: 'Category, status & tags', visualDensity: VisualDensity.compact, icon: Icon(Icons.label_outline, size: 20, color: _showMeta ? p.amber : null), onPressed: () => setState(() => _showMeta = !_showMeta)),
       IconButton(tooltip: 'DNA & analyzer', visualDensity: VisualDensity.compact, icon: Icon(Icons.insights_outlined, size: 20, color: _insights ? p.amber : null), onPressed: () => setState(() => _insights = !_insights)),
       IconButton(tooltip: 'Zen mode', visualDensity: VisualDensity.compact, icon: const Icon(Icons.fullscreen, size: 21), onPressed: () => _menu('zen')),
       IconButton(tooltip: 'New prompt', visualDensity: VisualDensity.compact, icon: const Icon(Icons.add, size: 22), onPressed: () => _menu('new')),
@@ -844,17 +845,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
                   ),
                 ]),
               ),
-            if (!zen)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-                child: Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                  PfBtn(label: 'Save', icon: Icons.save_outlined, onPressed: () => unawaited(_persist())),
-                  PfBtn(label: 'Download', icon: Icons.file_download_outlined, onPressed: () => _menu('export')),
-                  PfBtn(label: 'Save version', icon: Icons.history_toggle_off, onPressed: () => _menu('version')),
-                  _SaveIndicator(dirty: _dirty, saving: _saving, error: _saveError != null, saved: stored != null),
-                ]),
-              ),
-            if (!zen)
+            if (!zen && _showMeta)
               SizedBox(
                 height: 44,
                 child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 12), children: [
@@ -864,7 +855,18 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
                   _metaChip(_tags.isEmpty ? '+ tags' : _tags.map((t) => '#$t').join(' '), p.textSecondary, _editTags),
                 ]),
               ),
-            if (!zen) EditorQuickActions(host: this, trailing: trailing, showBlocks: !kbOpen),
+            if (!zen)
+              EditorQuickActions(
+                host: this,
+                compact: kbOpen,
+                leading: [
+                  PfBtn(label: 'Save', icon: Icons.save_outlined, onPressed: () => unawaited(_persist())),
+                  PfBtn(label: 'Download', icon: Icons.file_download_outlined, onPressed: () => _menu('export')),
+                  PfBtn(label: 'Save version', icon: Icons.history_toggle_off, onPressed: () => _menu('version')),
+                  _SaveIndicator(dirty: _dirty, saving: _saving, error: _saveError != null, saved: stored != null),
+                ],
+                trailing: trailing,
+              ),
             if (_saveError != null)
               MaterialBanner(
                 backgroundColor: p.red.withOpacity(0.12),
@@ -915,6 +917,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
                 wordWrap: ds.wordWrap,
                 lineHeight: ds.lineHeight == 'compact' ? 1.4 : (ds.lineHeight == 'loose' ? 2.0 : 1.7),
                 tabWidth: ds.tabWidth,
+                popup: _suggestions.isNotEmpty ? _suggestionStrip(p) : null,
+                popupHeight: (_suggestions.length > 7 ? 7 : _suggestions.length) * 42.0,
                 scrollController: _scroll,
                 hint: 'Write your prompt…  Try / for snippets, // for prompts, @ for links, {{ for variables.',
               ),
@@ -935,7 +939,6 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
                   ),
                 ),
               ),
-            if (_suggestions.isNotEmpty) _suggestionStrip(p),
             _bottomBar(p, ds, zen),
           ]),
         ),
@@ -986,8 +989,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     final shown = _suggestions.take(7).toList();
     final mono = TextStyle(fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback, fontSize: 14, color: p.text);
     return Container(
-      constraints: const BoxConstraints(maxHeight: 290),
-      decoration: BoxDecoration(color: p.surface2, border: Border(top: BorderSide(color: p.border))),
+      constraints: const BoxConstraints(maxHeight: 294),
+      decoration: BoxDecoration(
+        color: p.raised,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: p.border),
+        boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 6))],
+      ),
+      clipBehavior: Clip.antiAlias,
       child: ListView(
         shrinkWrap: true,
         padding: EdgeInsets.zero,

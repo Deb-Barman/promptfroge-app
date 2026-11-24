@@ -43,7 +43,7 @@ class _VaultSetupScreenState extends ConsumerState<VaultSetupScreen> {
     final notifier = ref.read(vaultProvider.notifier);
     final remembered = notifier.location.savedPath;
 
-    if (loading) {
+    if (loading || ref.watch(splashHoldProvider)) {
       return const Scaffold(
         body: SafeArea(
           child: BrandSplash(

@@ -62,23 +62,21 @@ class _CompareScreenState extends ConsumerState<CompareScreen> {
     final picker = [...selectedNotInPool, ...pool].take(18).toList();
 
     return Scaffold(
-      appBar: PfAppBar(title: const Text('Compare'), subtitle: 'Put saved prompts side-by-side with a word-level diff.', actions: [
-        IconButton(tooltip: 'Diff pasted text', icon: const Icon(Icons.content_paste_go_outlined), onPressed: () => showExternalDiff(context, ref, initialPromptId: selected.isEmpty ? null : selected.first.id)),
-        if (selected.length == 2)
-          IconButton(
-            tooltip: 'Swap',
-            icon: const Icon(Icons.swap_horiz),
-            onPressed: () => ref.read(compareSelectionProvider.notifier).state = [selected[1].id, selected[0].id, ...selIds.skip(2)],
-          ),
-        if (selected.isNotEmpty) TextButton(onPressed: () => ref.read(compareSelectionProvider.notifier).state = const [], child: const Text('Clear')),
-      ]),
-      body: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 40), children: [
-        Text('Pick two or more saved prompts to see their structure and Analyzer scores side by side.', style: TextStyle(color: p.textSecondary, fontSize: 13)),
-        const SizedBox(height: 10),
-        SearchField(controller: _search, hint: 'Search your library to add prompts…', onChanged: (v) => setState(() => _q = v)),
+      backgroundColor: p.bg,
+      body: ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 40), children: [
+        PfPageHeader(
+          title: 'Compare Prompts',
+          subtitle: 'Pick two or more saved prompts to see their structure and Analyzer scores side-by-side.',
+          actions: [
+            PfBtn(label: 'Diff pasted text', icon: Icons.content_paste_go_outlined, onPressed: () => showExternalDiff(context, ref, initialPromptId: selected.isEmpty ? null : selected.first.id)),
+            if (selected.length == 2) PfBtn(label: 'Swap', icon: Icons.swap_horiz, onPressed: () => ref.read(compareSelectionProvider.notifier).state = [selected[1].id, selected[0].id, ...selIds.skip(2)]),
+            if (selected.isNotEmpty) PfBtn(label: 'Clear', onPressed: () => ref.read(compareSelectionProvider.notifier).state = const []),
+          ],
+        ),
+        SearchField(controller: _search, hint: 'Search your library to add prompts to compare…', onChanged: (v) => setState(() => _q = v)),
         const SizedBox(height: 10),
         if (picker.isEmpty)
-          EmptyState(icon: Icons.search_off, title: all.isEmpty ? 'No prompts yet' : 'No matches', body: all.isEmpty ? 'Save a few prompts, then compare them here.' : 'Try different search words.')
+          EmptyState(icon: Icons.search_off, title: all.isEmpty ? 'No saved prompts yet' : 'No matches', body: all.isEmpty ? 'Write and save a prompt in the Editor first, then come back here to compare it against others.' : 'Try different search words.')
         else
           Wrap(spacing: 8, runSpacing: 8, children: [
             for (final x in picker)

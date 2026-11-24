@@ -2,8 +2,15 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme/app_theme.dart';
+
+/// How long the branded loading screen is held on every launch (the app waits at least this long).
+const Duration kSplashDuration = Duration(milliseconds: 4200);
+
+/// True until [kSplashDuration] has passed since launch; the router keeps the splash on screen meanwhile.
+final splashHoldProvider = StateProvider<bool>((ref) => true);
 
 /// Brand colours — identical to the launcher icon (assets/icon/icon.png).
 const Color kBrandAmber = Color(0xFFE8A33D);
@@ -108,7 +115,7 @@ class BrandSplash extends StatefulWidget {
   final String? tip;
   const BrandSplash({
     super.key,
-    this.messages = const ['Opening your vault…', 'Reading your prompts…', 'Getting things ready…'],
+    this.messages = const ['Opening your vault…', 'Reading your prompts…', 'Indexing templates and patterns…', 'Almost ready…'],
     this.tip,
   });
 
@@ -117,7 +124,8 @@ class BrandSplash extends StatefulWidget {
 }
 
 class _BrandSplashState extends State<BrandSplash> with TickerProviderStateMixin {
-  late final AnimationController _intro = AnimationController(vsync: this, duration: const Duration(milliseconds: 1700));
+  late final AnimationController _intro = AnimationController(vsync: this, duration: const Duration(milliseconds: 3400));
+  late final AnimationController _bar = AnimationController(vsync: this, duration: kSplashDuration - const Duration(milliseconds: 250));
   late final AnimationController _loop = AnimationController(vsync: this, duration: const Duration(milliseconds: 2600));
   Timer? _msgTimer;
   int _msg = 0;
@@ -130,13 +138,16 @@ class _BrandSplashState extends State<BrandSplash> with TickerProviderStateMixin
     _started = true;
     if (MediaQuery.of(context).disableAnimations) {
       _intro.value = 1;
+      _bar.value = 1;
     } else {
       _intro.forward();
+      _bar.forward();
       _loop.repeat();
     }
     if (widget.messages.length > 1) {
-      _msgTimer = Timer.periodic(const Duration(milliseconds: 1700), (_) {
-        if (mounted) setState(() => _msg = (_msg + 1) % widget.messages.length);
+      final step = (kSplashDuration.inMilliseconds / widget.messages.length).round();
+      _msgTimer = Timer.periodic(Duration(milliseconds: step), (_) {
+        if (mounted && _msg < widget.messages.length - 1) setState(() => _msg += 1);
       });
     }
   }
@@ -145,6 +156,7 @@ class _BrandSplashState extends State<BrandSplash> with TickerProviderStateMixin
   void dispose() {
     _msgTimer?.cancel();
     _intro.dispose();
+    _bar.dispose();
     _loop.dispose();
     super.dispose();
   }
@@ -211,7 +223,10 @@ class _BrandSplashState extends State<BrandSplash> with TickerProviderStateMixin
             width: 150,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(3),
-              child: LinearProgressIndicator(minHeight: 3, backgroundColor: p.border, valueColor: const AlwaysStoppedAnimation<Color>(kBrandAmber)),
+              child: AnimatedBuilder(
+                animation: _bar,
+                builder: (context, _) => LinearProgressIndicator(value: Curves.easeInOut.transform(_bar.value), minHeight: 3, backgroundColor: p.border, valueColor: const AlwaysStoppedAnimation<Color>(kBrandAmber)),
+              ),
             ),
           ),
           const SizedBox(height: 14),

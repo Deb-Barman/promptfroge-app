@@ -25,6 +25,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   int _reload = 0;
   int? _openVersion;
   bool _vsCurrent = false;
+  final _pickSearch = TextEditingController();
+  String _pickQ = '';
+  bool _onlyVersioned = false;
+
+  @override
+  void dispose() {
+    _pickSearch.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -70,6 +79,65 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     }
   }
 
+
+  Widget _picker(PfPalette p, Map<String, Prompt> prompts, VaultNotifier vn) {
+    final list = prompts.values.toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return FutureBuilder<Map<String, List<PromptVersion>>>(
+      key: ValueKey('picker-${ref.read(vaultProvider).revision}-$_reload'),
+      future: vn.allVersions(),
+      builder: (context, snap) {
+        final withV = <String>{
+          for (final e in (snap.data ?? const <String, List<PromptVersion>>{}).entries)
+            if (e.value.isNotEmpty) e.key,
+        };
+        final q = _pickQ.trim().toLowerCase();
+        final shown = list.where((x) => (!_onlyVersioned || withV.contains(x.id)) && (q.isEmpty || x.displayTitle.toLowerCase().contains(q))).toList();
+        return ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 40), children: [
+          const PfPageHeader(title: 'History & Versions', subtitle: 'Pick a prompt to see its saved versions, compare, and restore.'),
+          SearchField(controller: _pickSearch, hint: 'Search prompts by title…', onChanged: (v) => setState(() => _pickQ = v)),
+          const SizedBox(height: 6),
+          InkWell(
+            onTap: () => setState(() => _onlyVersioned = !_onlyVersioned),
+            child: Row(children: [
+              Checkbox(value: _onlyVersioned, onChanged: (v) => setState(() => _onlyVersioned = v == true)),
+              const Expanded(child: Text('Only prompts with saved versions', style: TextStyle(fontSize: 13.5))),
+            ]),
+          ),
+          const SizedBox(height: 6),
+          PfCard(
+            padding: EdgeInsets.zero,
+            child: shown.isEmpty
+                ? Padding(padding: const EdgeInsets.all(20), child: Text(list.isEmpty ? 'No prompts yet.' : 'No prompts match.', style: TextStyle(color: p.textTertiary)))
+                : Column(children: [
+                    for (var i = 0; i < shown.length && i < 60; i++)
+                      InkWell(
+                        onTap: () => setState(() {
+                          _promptId = shown[i].id;
+                          _openVersion = null;
+                        }),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(border: i == 0 ? null : Border(top: BorderSide(color: p.borderSubtle))),
+                          child: Row(children: [
+                            Expanded(
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text(shown[i].displayTitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                                const SizedBox(height: 2),
+                                Text('Updated ${Utils.timeAgo(shown[i].updatedAt)}', style: TextStyle(fontSize: 12, color: p.textTertiary)),
+                              ]),
+                            ),
+                            if (withV.contains(shown[i].id)) Icon(Icons.history, size: 18, color: p.amber),
+                          ]),
+                        ),
+                      ),
+                  ]),
+          ),
+          const EmptyState(icon: Icons.history, title: 'Select a prompt', body: 'Choose a prompt above to view its version history.'),
+        ]);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.pf;
@@ -79,12 +147,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final vn = ref.read(vaultProvider.notifier);
 
     return Scaffold(
-      appBar: PfAppBar(
+      backgroundColor: p.bg,
+      appBar: prompt == null
+          ? null
+          : PfAppBar(
         title: const Text('History & Versions'), subtitle: 'Pick a prompt to see its saved versions, compare, and restore.',
         actions: [IconButton(tooltip: 'Choose prompt', icon: const Icon(Icons.swap_horiz), onPressed: _pickPrompt)],
       ),
       body: prompt == null
-          ? EmptyState(icon: Icons.history, title: 'Select a prompt', body: 'Versions are saved with the editor’s “Save version” action and live inside your folder under .promptforge/versions.', actionLabel: 'Choose prompt', onAction: _pickPrompt)
+          ? _picker(p, d.prompts, vn)
           : FutureBuilder<List<PromptVersion>>(
               key: ValueKey('${prompt.id}-$_reload-${vault.revision}'),
               future: vn.versionsOf(prompt.id),
@@ -110,10 +181,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   if (versions.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
-                      child: SegmentedButton<bool>(
-                        segments: const [ButtonSegment(value: false, label: Text('Diff vs previous')), ButtonSegment(value: true, label: Text('Diff vs current'))],
-                        selected: {_vsCurrent},
-                        onSelectionChanged: (s) => setState(() => _vsCurrent = s.first),
+                      child: PfTabs<bool>(
+                        value: _vsCurrent,
+                        options: const [MapEntry(false, 'Diff vs previous'), MapEntry(true, 'Diff vs current')],
+                        onChanged: (v) => setState(() => _vsCurrent = v),
                       ),
                     ),
                   for (var i = 0; i < versions.length; i++)

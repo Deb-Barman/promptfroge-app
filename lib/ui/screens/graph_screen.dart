@@ -57,11 +57,7 @@ class _GraphScreenState extends ConsumerState<GraphScreen> {
     return ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 40), children: [
         Text('Type [[Prompt title]] inside a prompt to link to another one. ${g.edges.length} links across ${g.nodes.length} prompts.', style: TextStyle(color: p.textSecondary, fontSize: 13)),
         const SizedBox(height: 10),
-        SegmentedButton<String>(
-          segments: const [ButtonSegment(value: 'linked', label: Text('Linked')), ButtonSegment(value: 'orphans', label: Text('Orphans')), ButtonSegment(value: 'all', label: Text('All'))],
-          selected: {_filter},
-          onSelectionChanged: (s) => setState(() => _filter = s.first),
-        ),
+        PfTabs<String>(value: _filter, options: const [MapEntry('linked', 'Linked'), MapEntry('orphans', 'Orphans'), MapEntry('all', 'All')], onChanged: (v) => setState(() => _filter = v)),
         if (g.brokenLinks.isNotEmpty) ...[
           SectionTitle('Broken links (${g.brokenLinks.length})'),
           for (final b in g.brokenLinks)
