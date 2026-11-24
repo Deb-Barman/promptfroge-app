@@ -22,22 +22,25 @@ class LearnScreen extends ConsumerWidget {
     final attempts = settings.challengeAttempts;
     final solved = kChallenges.where((c) => progress[c.id] == true).length;
     return Scaffold(
-      appBar: PfAppBar(title: const Text('Learn')),
-      body: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 40), children: [
-        Text('$solved of ${kChallenges.length} challenges completed', style: TextStyle(color: p.textSecondary)),
-        const SectionTitle('Tips'),
-        for (var i = 0; i < kLearnTips.length; i++)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: PfCard(
-              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text((i + 1).toString().padLeft(2, '0'), style: TextStyle(color: p.amber, fontWeight: FontWeight.w800, fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback)),
-                const SizedBox(width: 12),
-                Expanded(child: Text(kLearnTips[i], style: TextStyle(color: p.textSecondary, height: 1.4, fontSize: 13.5))),
-              ]),
-            ),
-          ),
-        const SectionTitle('Challenges'),
+      backgroundColor: p.bg,
+      body: ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 40), children: [
+        PfPageHeader(title: 'Learn', subtitle: '$solved of ${kChallenges.length} challenges completed'),
+        PfCard(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const PfCardLabel('Tips'),
+            for (var i = 0; i < kLearnTips.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SizedBox(width: 32, child: Text((i + 1).toString().padLeft(2, '0'), style: TextStyle(color: p.amber, fontWeight: FontWeight.w800, fontSize: 13, fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback))),
+                  Expanded(child: Text(kLearnTips[i], style: TextStyle(color: p.text, height: 1.45, fontSize: 14.5))),
+                ]),
+              ),
+          ]),
+        ),
+        const SizedBox(height: 18),
+        Padding(padding: const EdgeInsets.only(bottom: 10), child: Text('CHALLENGES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.0, color: p.textTertiary))),
         for (final c in kChallenges)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),

@@ -178,13 +178,10 @@ class _DateSearchScreenState extends ConsumerState<DateSearchScreen> {
     final p = context.pf;
     final hits = _hits;
     return Scaffold(
-      appBar: PfAppBar(title: const Text('Search by date')),
+      backgroundColor: p.bg,
+      appBar: PfAppBar(title: const Text('Search by date'), subtitle: 'Find prompts and templates by the day they were created or changed.'),
       body: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 40), children: [
-        SegmentedButton<bool>(
-          segments: const [ButtonSegment(value: false, label: Text('On a date')), ButtonSegment(value: true, label: Text('Date range'))],
-          selected: {_range},
-          onSelectionChanged: (s) => setState(() => _range = s.first),
-        ),
+        PfTabs<bool>(value: _range, options: const [MapEntry(false, 'On a date'), MapEntry(true, 'Date range')], onChanged: (v) => setState(() => _range = v)),
         const SizedBox(height: 12),
         _dateField(_range ? 'From' : 'Date', _from, 'Today, 12 September 2026, 12/9/2026…'),
         if (_range) ...[const SizedBox(height: 10), _dateField('To', _to, 'e.g. 3 September 2026')],
@@ -201,24 +198,25 @@ class _DateSearchScreenState extends ConsumerState<DateSearchScreen> {
         Row(children: [
           Text('Sort', style: TextStyle(color: p.textTertiary, fontSize: 13)),
           const SizedBox(width: 10),
-          DropdownButton<String>(
-            value: _sort,
-            underline: const SizedBox.shrink(),
-            items: const [
-              DropdownMenuItem(value: 'newest', child: Text('Newest first')),
-              DropdownMenuItem(value: 'oldest', child: Text('Oldest first')),
-              DropdownMenuItem(value: 'az', child: Text('Title A–Z')),
-              DropdownMenuItem(value: 'za', child: Text('Title Z–A')),
-              DropdownMenuItem(value: 'big', child: Text('Largest first')),
-              DropdownMenuItem(value: 'small', child: Text('Smallest first')),
-            ],
-            onChanged: (v) {
-              setState(() => _sort = v ?? 'newest');
-              if (_hits != null) _search();
-            },
+          Expanded(
+            child: PfSelect<String>(
+              value: _sort,
+              options: const [
+                MapEntry('newest', 'Newest first'),
+                MapEntry('oldest', 'Oldest first'),
+                MapEntry('az', 'Title A–Z'),
+                MapEntry('za', 'Title Z–A'),
+                MapEntry('big', 'Largest first'),
+                MapEntry('small', 'Smallest first'),
+              ],
+              onChanged: (v) {
+                setState(() => _sort = v);
+                if (_hits != null) _search();
+              },
+            ),
           ),
-          const Spacer(),
-          FilledButton.icon(icon: const Icon(Icons.search, size: 18), label: const Text('Search'), onPressed: _busy ? null : _search),
+          const SizedBox(width: 10),
+          PfBtn(label: 'Search', icon: Icons.search, primary: true, onPressed: _busy ? null : _search),
         ]),
         const SizedBox(height: 12),
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 20), child: Center(child: Text(_error!, style: TextStyle(color: p.amber)))),
