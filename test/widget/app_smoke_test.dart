@@ -7,13 +7,15 @@ import 'package:prompt_forge/data/vault/vault_repository.dart';
 import 'package:prompt_forge/domain/models.dart';
 import 'package:prompt_forge/state/device_settings.dart';
 import 'package:prompt_forge/state/vault_notifier.dart';
+import 'package:prompt_forge/ui/widgets/brand_logo.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<ProviderContainer> _container({bool withVault = true, MemoryVaultFs? fs, bool onboardingSeen = true}) async {
   // The first-run welcome dialog would sit on top of the dashboard, so most tests start with it already seen.
   SharedPreferences.setMockInitialValues({'onboardingSeen': onboardingSeen});
   final prefs = await SharedPreferences.getInstance();
-  final c = ProviderContainer(overrides: [sharedPrefsProvider.overrideWithValue(prefs)]);
+  // The branded loading screen is held for a few seconds in the real app; tests skip that wait.
+  final c = ProviderContainer(overrides: [sharedPrefsProvider.overrideWithValue(prefs), splashHoldProvider.overrideWith((ref) => false)]);
   addTearDown(c.dispose);
   if (withVault) {
     final f = fs ?? MemoryVaultFs();
@@ -27,6 +29,14 @@ Future<void> _pumpApp(WidgetTester tester, ProviderContainer c) async {
   tester.view.devicePixelRatio = 2.0;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(UncontrolledProviderScope(container: c, child: const PromptForgeApp()));
+  await tester.pumpAndSettle();
+}
+
+/// Navigation lives in the drawer (like the web app): open it and tap the destination.
+Future<void> _goTo(WidgetTester tester, String label) async {
+  await tester.tap(find.byTooltip('Toggle navigation'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).last);
   await tester.pumpAndSettle();
 }
 
@@ -46,8 +56,7 @@ void main() {
     await _pumpApp(tester, c);
     expect(find.text('Dashboard'), findsWidgets);
     for (final tab in ['Editor', 'Library', 'Builder', 'Settings']) {
-      await tester.tap(find.text(tab).last);
-      await tester.pumpAndSettle();
+      await _goTo(tester, tab);
     }
     expect(find.text('Settings'), findsWidgets);
     expect(tester.takeException(), isNull);
@@ -57,8 +66,7 @@ void main() {
     final c = await _container();
     await c.read(vaultProvider.notifier).savePrompt(Prompt(title: 'Quarterly review', body: 'Summarize Q3 results.'));
     await _pumpApp(tester, c);
-    await tester.tap(find.text('Library').last);
-    await tester.pumpAndSettle();
+    await _goTo(tester, 'Library');
     expect(find.text('Quarterly review'), findsOneWidget);
     await tester.tap(find.text('Quarterly review'));
     await tester.pumpAndSettle();
@@ -69,8 +77,7 @@ void main() {
     final fs = MemoryVaultFs();
     final c = await _container(fs: fs);
     await _pumpApp(tester, c);
-    await tester.tap(find.text('Editor').last);
-    await tester.pumpAndSettle();
+    await _goTo(tester, 'Editor');
     final fields = find.byType(TextField);
     expect(fields, findsWidgets);
     await tester.enterText(fields.first, 'My new prompt');
@@ -86,8 +93,7 @@ void main() {
   testWidgets('builder composes blocks and sends them to the editor', (tester) async {
     final c = await _container();
     await _pumpApp(tester, c);
-    await tester.tap(find.text('Builder').last);
-    await tester.pumpAndSettle();
+    await _goTo(tester, 'Builder');
     expect(find.text('Send to Editor'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
