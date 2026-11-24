@@ -56,6 +56,10 @@ class CodeEditor extends StatefulWidget {
   /// Spaces inserted by the Tab key.
   final int tabWidth;
 
+  /// Optional floating widget (autocomplete list) shown right under the caret, like in the web editor.
+  final Widget? popup;
+  final double popupHeight;
+
   const CodeEditor({
     super.key,
     required this.controller,
@@ -72,6 +76,8 @@ class CodeEditor extends StatefulWidget {
     this.padding = const EdgeInsets.fromLTRB(8, 12, 12, 120),
     this.lineHeight = 1.7,
     this.tabWidth = 2,
+    this.popup,
+    this.popupHeight = 0,
   });
 
   @override
@@ -172,7 +178,7 @@ class _CodeEditorState extends State<CodeEditor> {
         field = SingleChildScrollView(scrollDirection: Axis.horizontal, child: ConstrainedBox(constraints: BoxConstraints(minWidth: textW), child: IntrinsicWidth(child: field)));
       }
 
-      return Container(
+      final editor = Container(
         color: p.editorBg,
         child: SingleChildScrollView(
           controller: widget.scrollController,
@@ -199,6 +205,33 @@ class _CodeEditorState extends State<CodeEditor> {
           ),
         ),
       );
+      if (widget.popup == null) return editor;
+      final scroll = widget.scrollController;
+      return Stack(children: [
+        Positioned.fill(child: editor),
+        ListenableBuilder(
+          listenable: Listenable.merge([widget.controller, if (scroll != null) scroll]),
+          builder: (context, _) {
+            final sel = widget.controller.selection;
+            final text = widget.controller.text;
+            if (!sel.isValid) return const SizedBox.shrink();
+            final tp = TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.ltr)..layout(maxWidth: widget.wordWrap ? textW : double.infinity);
+            final caret = tp.getOffsetForCaret(TextPosition(offset: sel.baseOffset.clamp(0, text.length)), Rect.zero);
+            final lh = widget.fontSize * _lineHeightFactor;
+            tp.dispose();
+            final off = (scroll != null && scroll.hasClients) ? scroll.offset : 0.0;
+            final popupW = (c.maxWidth - 16).clamp(160.0, 340.0);
+            final x = (gutterW + caret.dx - 10).clamp(8.0, (c.maxWidth - popupW - 8).clamp(8.0, 4000.0));
+            final yBelow = widget.padding.top + caret.dy + lh - off + 4;
+            var y = yBelow;
+            if (yBelow + widget.popupHeight > c.maxHeight - 4) {
+              final yAbove = widget.padding.top + caret.dy - off - widget.popupHeight - 4;
+              y = yAbove >= 4 ? yAbove : (c.maxHeight - widget.popupHeight - 4).clamp(4.0, 4000.0);
+            }
+            return Positioned(left: x, top: y, width: popupW, child: widget.popup!);
+          },
+        ),
+      ]);
     });
   }
 }
