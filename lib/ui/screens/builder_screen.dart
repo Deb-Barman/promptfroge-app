@@ -94,6 +94,7 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
     return [...builtins, ...custom.map((s) => _StructureRow(s.id, s.name, false, s.blocks))];
   }
 
+  // ignore: unused_element
   Future<void> _structuresSheet() async {
     await showPfSheet<void>(
       context,
