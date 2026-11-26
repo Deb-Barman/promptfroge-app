@@ -60,6 +60,9 @@ class CodeEditor extends StatefulWidget {
   final Widget? popup;
   final double popupHeight;
 
+  /// Width of [popup]; null uses almost the full editor width (up to 340).
+  final double? popupWidth;
+
   const CodeEditor({
     super.key,
     required this.controller,
@@ -78,6 +81,7 @@ class CodeEditor extends StatefulWidget {
     this.tabWidth = 2,
     this.popup,
     this.popupHeight = 0,
+    this.popupWidth,
   });
 
   @override
@@ -220,7 +224,7 @@ class _CodeEditorState extends State<CodeEditor> {
             final lh = widget.fontSize * _lineHeightFactor;
             tp.dispose();
             final off = (scroll != null && scroll.hasClients) ? scroll.offset : 0.0;
-            final popupW = (c.maxWidth - 16).clamp(160.0, 340.0);
+            final popupW = (widget.popupWidth ?? (c.maxWidth - 16)).clamp(160.0, 340.0).toDouble();
             final x = (gutterW + caret.dx - 10).clamp(8.0, (c.maxWidth - popupW - 8).clamp(8.0, 4000.0));
             final yBelow = widget.padding.top + caret.dy + lh - off + 4;
             var y = yBelow;

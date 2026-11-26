@@ -1,27 +1,83 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants.dart';
+import '../../../domain/engines/brain.dart';
 import '../../../domain/engines/cleaner.dart';
 import '../../../domain/engines/tools.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common.dart';
 import 'editor_tools.dart';
 
-/// The editor action area of the original web app: Save / Download / Save version buttons followed by plain
-/// text actions (Clean, Improve, Security check …) that wrap onto several lines, then the coloured block chips.
-/// While the keyboard is open it collapses into one horizontally scrolling row so the text keeps its room.
-class EditorQuickActions extends StatelessWidget {
+/// One round-cornered icon button of the editor's action rail.
+class RailButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final bool active;
+  final Color? color;
+  final Widget? badge;
+
+  const RailButton({super.key, required this.icon, required this.tooltip, this.onTap, this.active = false, this.color, this.badge});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pf;
+    final enabled = onTap != null;
+    final fg = !enabled ? p.textTertiary.withValues(alpha: 0.5) : (color ?? (active ? p.amber : p.textSecondary));
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: active ? p.amber.withValues(alpha: 0.14) : Colors.transparent,
+        borderRadius: BorderRadius.circular(11),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(11),
+          onTap: onTap,
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Stack(alignment: Alignment.center, children: [
+              Icon(icon, size: 21, color: fg),
+              if (badge != null) Positioned(right: 5, top: 5, child: badge!),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Thin separator between groups on the action rail.
+class RailDivider extends StatelessWidget {
+  const RailDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 11), child: SizedBox(width: 1, child: ColoredBox(color: context.pf.border)));
+}
+
+/// The editor's primary action rail: a single horizontally scrolling row (no wrapping, no overlap).
+class EditorActionRail extends StatelessWidget {
+  final List<Widget> children;
+  const EditorActionRail({super.key, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pf;
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: p.borderSubtle))),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        children: children,
+      ),
+    );
+  }
+}
+
+/// The text transformations of the web editor, as one scrollable row of compact chips with icons.
+class EditorQuickTools extends StatelessWidget {
   final EditorHost host;
-
-  /// Buttons at the start of the area (Save, Download, Save version, save state).
-  final List<Widget> leading;
-
-  /// Icon strip at the end (find, undo, redo, zen, new, menu).
-  final List<Widget> trailing;
-
-  /// True while the keyboard is open.
-  final bool compact;
-  const EditorQuickActions({super.key, required this.host, this.leading = const [], this.trailing = const [], this.compact = false});
+  const EditorQuickTools({super.key, required this.host});
 
   void _apply(BuildContext c, String result, String msg) {
     if (result == host.text) {
@@ -32,23 +88,7 @@ class EditorQuickActions extends StatelessWidget {
     toast(c, '$msg — undo from the toolbar');
   }
 
-  void _insertBlock(String text) {
-    final empty = host.text.trim().isEmpty;
-    host.insertAtCursor('${empty ? '' : '\n\n'}$text');
-  }
-
-  void _block(BlockType b) => _insertBlock('${b.label}:\n');
-
-  Widget _link(BuildContext c, PfPalette p, String label, VoidCallback onTap) => InkWell(
-        borderRadius: BorderRadius.circular(6),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
-          child: Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: p.textSecondary)),
-        ),
-      );
-
-  void _shortcuts(BuildContext context) {
+  static void shortcuts(BuildContext context) {
     final p = context.pf;
     const rows = [
       ['/', 'Insert a snippet'],
@@ -77,56 +117,160 @@ class EditorQuickActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.pf;
-    final links = <Widget>[
-      _link(context, p, 'Clean', () => _apply(context, PromptCleaner.autoClean(host.text), 'Cleaned')),
-      _link(context, p, 'Improve', () => showEditorTools(context, host, initialTab: 0)),
-      _link(context, p, 'Security check', () => showEditorTools(context, host, initialTab: 1)),
-      _link(context, p, 'Copy as…', () => showEditorTools(context, host, initialTab: 4)),
-      _link(context, p, 'Wrap XML', () => _apply(context, ModelAdapter.wrapInXml(host.text, host.format), 'Wrapped in XML tags')),
-      _link(context, p, 'Adapt for…', () => showEditorTools(context, host, initialTab: 2)),
-      _link(context, p, '+ Constraint', () => _insertBlock('Constraints:\n- ')),
-      _link(context, p, 'Extract variables', () => showEditorTools(context, host, initialTab: 3)),
-      _link(context, p, '+ Examples', () => _insertBlock('Examples:\nInput: \nOutput: ')),
-      _link(context, p, 'Edge cases', () => _insertBlock('Edge Cases:\n- ')),
-      _link(context, p, 'Shorten', () => _apply(context, PromptTools.shorten(host.text), 'Shortened')),
-      _link(context, p, 'Bulletify', () => _apply(context, PromptTools.bulletify(host.text), 'Bulletified')),
-      _link(context, p, '+ Reasoning', () {
+    final items = <(IconData, String, VoidCallback)>[
+      (Icons.cleaning_services_outlined, 'Clean', () => _apply(context, PromptCleaner.autoClean(host.text), 'Cleaned')),
+      (Icons.auto_awesome_outlined, 'Improve', () => showEditorTools(context, host, initialTab: 0)),
+      (Icons.shield_outlined, 'Security check', () => showEditorTools(context, host, initialTab: 1)),
+      (Icons.ios_share_outlined, 'Copy as…', () => showEditorTools(context, host, initialTab: 4)),
+      (Icons.data_object, 'Wrap XML', () => _apply(context, ModelAdapter.wrapInXml(host.text, host.format), 'Wrapped in XML tags')),
+      (Icons.tune, 'Adapt for…', () => showEditorTools(context, host, initialTab: 2)),
+      (Icons.data_array, 'Extract variables', () => showEditorTools(context, host, initialTab: 3)),
+      (Icons.compress, 'Shorten', () => _apply(context, PromptTools.shorten(host.text), 'Shortened')),
+      (Icons.format_list_bulleted, 'Bulletify', () => _apply(context, PromptTools.bulletify(host.text), 'Bulletified')),
+      (Icons.psychology_outlined, 'Reasoning', () {
         host.insertAtCursor(PromptTools.chainOfThoughtBlock());
         toast(context, 'Inserted at cursor');
       }),
-      _link(context, p, 'More tools ▾', () => showEditorTools(context, host)),
-      _link(context, p, 'Shortcuts', () => _shortcuts(context)),
+      (Icons.apps, 'More tools', () => showEditorTools(context, host)),
+      (Icons.keyboard_command_key, 'Shortcuts', () => shortcuts(context)),
     ];
+    return SizedBox(
+      height: 42,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        children: [for (final t in items) Padding(padding: const EdgeInsets.only(right: 6), child: _ToolChip(icon: t.$1, label: t.$2, onTap: t.$3))],
+      ),
+    );
+  }
+}
 
-    if (compact) {
-      final all = [...leading, ...links, ...trailing];
-      return Container(
-        height: 48,
-        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: p.borderSubtle))),
-        child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 10), children: [
-          for (final w in all) Center(child: Padding(padding: const EdgeInsets.only(right: 4), child: w)),
-        ]),
-      );
+class _ToolChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _ToolChip({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pf;
+    return Material(
+      color: p.surface3,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: p.borderSubtle)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 15, color: p.textSecondary),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: p.textSecondary)),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// The coloured prompt-section chips (+ Role, + Context …) as one scrollable row. The brain orders them by
+/// what this user normally writes next and marks the sections their prompts usually have but this one lacks.
+class EditorBlocksRow extends StatelessWidget {
+  final EditorHost host;
+  final List<BlockHint>? hints;
+  const EditorBlocksRow({super.key, required this.host, this.hints});
+
+  static String seedFor(BlockType b) {
+    switch (b.id) {
+      case 'constraints':
+        return 'Constraints:\n- ';
+      case 'examples':
+        return 'Examples:\nInput: \nOutput: ';
+      case 'edgecases':
+        return 'Edge Cases:\n- ';
+      case 'instructions':
+        return 'Instructions:\n1. ';
+      default:
+        return '${b.label}:\n';
     }
+  }
 
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 2, 12, 6),
-        child: Wrap(spacing: 0, runSpacing: 0, crossAxisAlignment: WrapCrossAlignment.center, children: [
-          for (final w in leading) Padding(padding: const EdgeInsets.only(right: 8, top: 4, bottom: 4), child: w),
-          ...links,
-          ...trailing,
+  void _insert(BlockType b) {
+    final empty = host.text.trim().isEmpty;
+    host.insertAtCursor('${empty ? '' : '\n\n'}${seedFor(b)}');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pf;
+    final byId = {for (final h in hints ?? const <BlockHint>[]) h.id: h};
+    final blocks = [...kBlockTypes];
+    if (byId.isNotEmpty) {
+      int rank(BlockType b) {
+        final h = byId[b.id];
+        if (h == null) return 1;
+        if (h.present) return 2;
+        return h.recommended ? 0 : 1;
+      }
+
+      final order = {for (var i = 0; i < kBlockTypes.length; i++) kBlockTypes[i].id: i};
+      blocks.sort((a, b) {
+        final c = rank(a).compareTo(rank(b));
+        if (c != 0) return c;
+        if (rank(a) == 1) {
+          final s = (byId[b.id]?.score ?? 0).compareTo(byId[a.id]?.score ?? 0);
+          if (s != 0) return s;
+        }
+        return order[a.id]!.compareTo(order[b.id]!);
+      });
+    }
+    return Container(
+      height: 46,
+      decoration: BoxDecoration(color: p.surface, border: Border(top: BorderSide(color: p.borderSubtle), bottom: BorderSide(color: p.borderSubtle))),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        children: [
+          for (final b in blocks)
+            Padding(
+              padding: const EdgeInsets.only(right: 7),
+              child: _BlockPill(block: b, color: pfColor(b.color), present: byId[b.id]?.present ?? false, recommended: byId[b.id]?.recommended ?? false, onTap: () => _insert(b)),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BlockPill extends StatelessWidget {
+  final BlockType block;
+  final Color color;
+  final bool present;
+  final bool recommended;
+  final VoidCallback onTap;
+  const _BlockPill({required this.block, required this.color, required this.present, required this.recommended, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = present ? color.withValues(alpha: 0.55) : color;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 11),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: present ? 0.06 : (recommended ? 0.2 : 0.12)),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: recommended ? color : color.withValues(alpha: present ? 0.3 : 0.55), width: recommended ? 1.4 : 1),
+          boxShadow: recommended ? [BoxShadow(color: color.withValues(alpha: 0.35), blurRadius: 8)] : null,
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (present) Icon(Icons.check, size: 14, color: fg) else if (recommended) Icon(Icons.auto_awesome, size: 13, color: fg) else Text('+', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: fg)),
+          const SizedBox(width: 4),
+          Text(block.label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: fg)),
         ]),
       ),
-      Container(
-        width: double.infinity,
-        decoration: BoxDecoration(color: p.surface, border: Border(top: BorderSide(color: p.borderSubtle), bottom: BorderSide(color: p.borderSubtle))),
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-        child: Wrap(spacing: 6, runSpacing: 6, children: [
-          for (final b in kBlockTypes) PfChip(label: '+ ${b.label}', color: pfColor(b.color), selected: true, onTap: () => _block(b)),
-        ]),
-      ),
-    ]);
+    );
   }
 }

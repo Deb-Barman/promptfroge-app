@@ -9,21 +9,24 @@ import '../../../app/shell.dart';
 import '../../../core/constants.dart';
 import '../../../core/util.dart';
 import '../../../domain/engines/analyzer.dart';
+import '../../../domain/engines/brain.dart';
 import '../../../domain/engines/highlighter.dart';
 import '../../../domain/engines/search_engine.dart';
 import '../../../domain/engines/token_estimator.dart';
 import '../../../domain/models.dart';
+import '../../../state/brain_provider.dart';
 import '../../../state/device_settings.dart';
 import '../../../state/tokenizer_provider.dart';
 import '../../../state/vault_notifier.dart';
 import '../../prompt_export_sheet.dart';
-import '../../search_sheet.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/brain_sheet.dart';
 import '../../widgets/common.dart';
 import 'code_editor.dart';
 import 'editor_tools.dart';
 import 'insights_panel.dart';
 import 'quick_actions.dart';
+import 'suggestion_popup.dart';
 import '../../widgets/pf_chrome.dart';
 
 class EditorScreen extends ConsumerStatefulWidget {
@@ -63,7 +66,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
   Timer? _scoreTimer;
   int? _liveScore;
   bool _insights = false;
-  bool _showMeta = false;
+  bool _toolsOpen = true;
   Prompt? _conflict;
 
   // find & replace
@@ -80,12 +83,20 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
   int _sugReplaceEnd = 0;
   String _sugSuffix = '';
 
+  // brain
+  List<BrainHit> _predictions = const [];
+  List<BlockHint>? _blockHints;
+  String _hintSig = '';
+  Timer? _hintTimer;
+  bool _popupShown = false;
+
   @override
   void initState() {
     super.initState();
     _vault = ref.read(vaultProvider.notifier);
     WidgetsBinding.instance.addObserver(this);
     _body.addListener(_onBodyChanged);
+    _focus.addListener(_onFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final r = ref.read(editorRequestProvider);
@@ -99,6 +110,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     _autosave?.cancel();
     _suggestTimer?.cancel();
     _scoreTimer?.cancel();
+    _hintTimer?.cancel();
+    _focus.removeListener(_onFocusChanged);
     // Best-effort flush; the notifier outlives this widget.
     if (_dirty) unawaited(_persist());
     _body.removeListener(_onBodyChanged);
@@ -229,6 +242,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     _docKey++;
     _dirty = false;
     _suggestions = const [];
+    _predictions = const [];
+    _popupShown = false;
     if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
@@ -250,6 +265,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     }
     _scheduleSuggestions();
     _scheduleLiveScore();
+    _scheduleHints();
+  }
+
+  void _onFocusChanged() {
+    if (mounted) setState(() {});
+    _scheduleSuggestions();
   }
 
   String _lastSeenText = '';
@@ -378,8 +399,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
   void _computeSuggestions() {
     if (!mounted) return;
     void clear() {
-      if (_suggestions.isNotEmpty) setState(() => _suggestions = const []);
+      _popupShown = false;
+      if (_suggestions.isNotEmpty || _predictions.isNotEmpty) {
+        setState(() {
+          _suggestions = const [];
+          _predictions = const [];
+        });
+      }
     }
+
     if (!ref.read(deviceSettingsProvider).suggestionsEnabled) {
       clear();
       return;
@@ -401,7 +429,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
         _sugReplaceStart = cursor - trig.fullMatch.length;
         _sugReplaceEnd = cursor;
         _sugSuffix = '';
-        setState(() => _suggestions = items);
+        _popupShown = false;
+        setState(() {
+          _suggestions = items;
+          _predictions = const [];
+        });
         return;
       }
     }
@@ -415,10 +447,45 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
       _sugReplaceStart = cursor - partial.length;
       _sugReplaceEnd = cursor;
       _sugSuffix = after.startsWith('}}') ? '' : '}}';
-      setState(() => _suggestions = items);
+      _popupShown = false;
+      setState(() {
+        _suggestions = items;
+        _predictions = const [];
+      });
       return;
     }
-    // 3) learned phrase / word completion
+    // 3) the brain: word / phrase completion while typing, next-word predictions after a space
+    final bs = ref.read(brainProvider);
+    final model = bs.model;
+    if (model != null) {
+      _sugSuffix = '';
+      if (RegExp(r"[A-Za-z][A-Za-z0-9_'’-]*$").hasMatch(before)) {
+        final hits = model.complete(before, usage: bs.usage, limit: 8);
+        if (hits.isEmpty) return clear();
+        _sugReplaceStart = cursor - hits.first.matchLen;
+        _sugReplaceEnd = cursor;
+        if (!_popupShown) {
+          _popupShown = true;
+          ref.read(brainProvider.notifier).noteShown();
+        }
+        setState(() {
+          _suggestions = [for (final h in hits) SuggestionItem(h.label, h.insert, h.kind, matchLen: h.matchLen)];
+          _predictions = const [];
+        });
+        return;
+      }
+      final atBoundary = before.isEmpty || RegExp(r'\s$').hasMatch(before);
+      final preds = atBoundary ? model.predictNext(before, usage: bs.usage) : const <BrainHit>[];
+      _popupShown = false;
+      if (_suggestions.isNotEmpty || _predictions.length != preds.length || (preds.isNotEmpty && _predictions.isNotEmpty && _predictions.first.insert != preds.first.insert) || (_predictions.isEmpty && preds.isNotEmpty)) {
+        setState(() {
+          _suggestions = const [];
+          _predictions = preds;
+        });
+      }
+      return;
+    }
+    // 4) fallback while the brain is still learning: learned phrase / word completion
     if (before.trim().length < 3) return clear();
     final items = engine.phraseSuggestions(before);
     if (items.isEmpty) return clear();
@@ -438,11 +505,42 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     final ins = '${s.text}$_sugSuffix';
     final next = t.replaceRange(replaceStart, end, ins);
     _body.value = TextEditingValue(text: next, selection: TextSelection.collapsed(offset: replaceStart + ins.length));
+    _popupShown = false;
     setState(() => _suggestions = const []);
+    if (s.src == 'word' || s.src == 'phrase') ref.read(brainProvider.notifier).recordAccept(s.text);
     if (s.src == 'snippet' && s.meta != null) {
       final sn = ref.read(vaultProvider).data.snippets[s.meta];
       if (sn != null) unawaited(_vault.saveSnippet(sn.clone()..useCount += 1));
     }
+  }
+
+  /// Inserts a next-word prediction from the strip above the keyboard.
+  void _acceptHit(BrainHit h) {
+    final t = _body.text;
+    final sel = _body.selection;
+    final cur = (sel.isValid ? sel.baseOffset : t.length).clamp(0, t.length);
+    final next = t.replaceRange(cur, cur, h.insert);
+    _body.value = TextEditingValue(text: next, selection: TextSelection.collapsed(offset: cur + h.insert.length));
+    ref.read(brainProvider.notifier).recordAccept(h.insert);
+    _focus.requestFocus();
+  }
+
+  /// Re-ranks the section chips by what this user usually writes (debounced; the order should not jump while typing).
+  void _scheduleHints({bool immediate = false}) {
+    _hintTimer?.cancel();
+    _hintTimer = Timer(Duration(milliseconds: immediate ? 0 : 1100), () {
+      if (!mounted) return;
+      final model = ref.read(brainProvider).model;
+      if (model == null) return;
+      final hints = model.rankBlocks(_body.text);
+      final sig = hints.map((h) => '${h.id}${h.present ? 1 : 0}${h.recommended ? 1 : 0}').join();
+      if (sig != _hintSig) {
+        setState(() {
+          _hintSig = sig;
+          _blockHints = hints;
+        });
+      }
+    });
   }
 
   void _quickInsert(String token) {
@@ -746,65 +844,44 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
 
   // ----------------------------------------------------------------- build
 
+  static String _clock(int ts) {
+    final d = DateTime.fromMillisecondsSinceEpoch(ts);
+    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<EditorRequest?>(editorRequestProvider, (_, next) {
       if (next != null) unawaited(_handleRequest(next));
     });
     ref.listen<VaultState>(vaultProvider, _onVaultChanged);
+    ref.listen<BrainState>(brainProvider, (prev, next) {
+      final up = next.levelUp;
+      if (up != null) {
+        toast(context, 'Your editor brain reached level $up · ${next.model?.level.name ?? ''}');
+        ref.read(brainProvider.notifier).clearLevelUp();
+      }
+      if (prev?.version != next.version) {
+        _scheduleHints(immediate: true);
+        _scheduleSuggestions();
+      }
+    });
 
     final p = context.pf;
     final ds = ref.watch(deviceSettingsProvider);
     final zen = ref.watch(zenModeProvider);
     final vault = ref.watch(vaultProvider);
+    final brain = ref.watch(brainProvider);
     final stored = _prompt == null ? null : vault.data.prompts[_prompt!.id];
     final family = (kEditorFontFallbacks[ds.editorFont] ?? kMonoFallback);
     _body.configure(format: _format, highlight: ds.highlight, colors: p.brightness == Brightness.dark ? const HighlightColors.dark() : const HighlightColors.light());
-    final cat = categoryById(_category);
-    final status = statusById(_status);
-
     final fmtLabel = kPromptFormats.firstWhere((f) => f.id == _format, orElse: () => kPromptFormats.first).label;
     final kbOpen = View.of(context).viewInsets.bottom > 0;
     MediaQuery.of(context); // rebuild when the keyboard opens/closes
-    final trailing = <Widget>[
-      IconButton(tooltip: 'Find & replace', visualDensity: VisualDensity.compact, icon: const Icon(Icons.search, size: 20), onPressed: () => _menu('find')),
-      ValueListenableBuilder<UndoHistoryValue>(
-        valueListenable: _undo,
-        builder: (context, v, _) => Row(children: [
-          IconButton(tooltip: 'Undo', visualDensity: VisualDensity.compact, icon: const Icon(Icons.undo, size: 20), onPressed: v.canUndo ? _undo.undo : null),
-          IconButton(tooltip: 'Redo', visualDensity: VisualDensity.compact, icon: const Icon(Icons.redo, size: 20), onPressed: v.canRedo ? _undo.redo : null),
-        ]),
-      ),
-      IconButton(tooltip: 'Category, status & tags', visualDensity: VisualDensity.compact, icon: Icon(Icons.label_outline, size: 20, color: _showMeta ? p.amber : null), onPressed: () => setState(() => _showMeta = !_showMeta)),
-      IconButton(tooltip: 'DNA & analyzer', visualDensity: VisualDensity.compact, icon: Icon(Icons.insights_outlined, size: 20, color: _insights ? p.amber : null), onPressed: () => setState(() => _insights = !_insights)),
-      IconButton(tooltip: 'Zen mode', visualDensity: VisualDensity.compact, icon: const Icon(Icons.fullscreen, size: 21), onPressed: () => _menu('zen')),
-      IconButton(tooltip: 'New prompt', visualDensity: VisualDensity.compact, icon: const Icon(Icons.add, size: 22), onPressed: () => _menu('new')),
-      PopupMenuButton<String>(
-                    onSelected: _menu,
-        padding: EdgeInsets.zero,
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'new', child: Text('New prompt')),
-                      const PopupMenuItem(value: 'find', child: Text('Find & replace')),
-                      const PopupMenuItem(value: 'zen', child: Text('Zen mode')),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(value: 'version', child: Text('Save version…')),
-                      const PopupMenuItem(value: 'history', child: Text('Version history')),
-                      const PopupMenuItem(value: 'related', child: Text('Related & backlinks')),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(value: 'copy', child: Text('Copy text')),
-                      const PopupMenuItem(value: 'export', child: Text('Export / share…')),
-                      PopupMenuItem(value: 'fav', child: Text(stored?.favorite == true ? 'Remove favorite' : 'Favorite')),
-                      PopupMenuItem(value: 'pin', child: Text(stored?.pinned == true ? 'Unpin' : 'Pin to top')),
-                      PopupMenuItem(value: 'revisit', child: Text(stored?.needsRevisit != null ? 'Clear revisit flag' : 'Flag for revisit…')),
-                      const PopupMenuItem(value: 'duplicate', child: Text('Duplicate')),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(value: 'template', child: Text('Save as template…')),
-                      const PopupMenuItem(value: 'snippet', child: Text('Save as snippet…')),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(value: 'delete', child: Text('Delete')),
-                    ],
-                  ),
-    ];
+    // While typing with the keyboard up, only the action rail stays: the text gets the room.
+    final compact = kbOpen && _focus.hasFocus && !zen;
+    final showTools = !zen && !compact && _toolsOpen;
 
     return PopScope(
       canPop: !zen,
@@ -815,141 +892,398 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
         backgroundColor: p.editorBg,
         body: SafeArea(
           top: zen,
-          child: Column(children: [
-            if (!zen)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                child: Row(children: [
+          child: Stack(children: [
+            Positioned.fill(
+              child: Column(children: [
+                if (!zen && !compact) _header(p, fmtLabel, stored),
+                if (!zen && !compact) _subHeader(p, stored),
+                if (!zen) _rail(p, brain, stored),
+                if (showTools) ...[
+                  EditorQuickTools(host: this),
+                  EditorBlocksRow(host: this, hints: _blockHints),
+                ],
+                if (_saveError != null)
+                  MaterialBanner(
+                    backgroundColor: p.red.withValues(alpha: 0.12),
+                    content: Text('Could not save to your folder: $_saveError', style: const TextStyle(fontSize: 13)),
+                    actions: [
+                      TextButton(onPressed: () => Clipboard.setData(ClipboardData(text: _body.text)), child: const Text('Copy text')),
+                      TextButton(onPressed: () => unawaited(_persist()), child: const Text('Retry')),
+                    ],
+                  ),
+                if (_conflict != null)
+                  MaterialBanner(
+                    backgroundColor: p.amber.withValues(alpha: 0.12),
+                    content: const Text('This file changed on disk while you were editing.', style: TextStyle(fontSize: 13)),
+                    actions: [
+                      TextButton(
+                        onPressed: () {
+                          final c = _conflict!;
+                          setState(() => _conflict = null);
+                          // keep my text: adopt the disk version as the new base so my next save overwrites it
+                          _baseBody = c.body;
+                          _baseTitle = c.title;
+                          _prompt = c;
+                          _markDirty();
+                        },
+                        child: const Text('Keep mine'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          final c = _conflict!;
+                          _load(c);
+                        },
+                        child: const Text('Load disk version'),
+                      ),
+                    ],
+                  ),
+                if (_findOpen && !zen) _findBar(p),
+                Expanded(flex: 5, child: _editorCard(p, ds, family, zen, stored)),
+                if (_insights && !zen)
                   Expanded(
-                    child: TextField(
-                      controller: _title,
-                      onChanged: (_) => _markDirty(),
-                      textCapitalization: TextCapitalization.sentences,
-                      style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w700, letterSpacing: -0.2),
-                      decoration: const InputDecoration(hintText: 'Untitled prompt', border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, filled: false, isDense: true, contentPadding: EdgeInsets.symmetric(vertical: 6)),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  GestureDetector(
-                    onTap: _pickFormat,
+                    flex: 4,
                     child: Container(
-                      height: 38,
-                      padding: const EdgeInsets.only(left: 12, right: 6),
-                      decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.border)),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Text(fmtLabel, style: const TextStyle(fontSize: 13.5)),
-                        const SizedBox(width: 6),
-                        Icon(Icons.keyboard_arrow_down, size: 18, color: p.textTertiary),
-                      ]),
+                      decoration: BoxDecoration(border: Border(top: BorderSide(color: p.border))),
+                      child: ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: _body,
+                        builder: (context, v, _) => EditorInsights(
+                          text: v.text,
+                          blocks: _blocks,
+                          profileId: ref.watch(vaultProvider).data.settings.scoringProfile,
+                          onProfile: (id) => ref.read(vaultProvider.notifier).updateSettings(ref.read(vaultProvider).data.settings.clone()..scoringProfile = id),
+                        ),
+                      ),
                     ),
                   ),
-                ]),
-              ),
-            if (!zen && _showMeta)
-              SizedBox(
-                height: 44,
-                child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 12), children: [
-                  _metaChip(cat.label, pfColor(cat.color), _pickCategory),
-                  _metaChip(status.label, pfColor(status.color), _pickStatus),
-                  _metaChip(kPromptFormats.firstWhere((f) => f.id == _format, orElse: () => kPromptFormats.first).label, p.blue, _pickFormat),
-                  _metaChip(_tags.isEmpty ? '+ tags' : _tags.map((t) => '#$t').join(' '), p.textSecondary, _editTags),
-                ]),
-              ),
-            if (!zen)
-              EditorQuickActions(
-                host: this,
-                compact: kbOpen,
-                leading: [
-                  PfBtn(label: 'Save', icon: Icons.save_outlined, onPressed: () => unawaited(_persist())),
-                  PfBtn(label: 'Download', icon: Icons.file_download_outlined, onPressed: () => _menu('export')),
-                  PfBtn(label: 'Save version', icon: Icons.history_toggle_off, onPressed: () => _menu('version')),
-                  _SaveIndicator(dirty: _dirty, saving: _saving, error: _saveError != null, saved: stored != null),
-                ],
-                trailing: trailing,
-              ),
-            if (_saveError != null)
-              MaterialBanner(
-                backgroundColor: p.red.withOpacity(0.12),
-                content: Text('Could not save to your folder: $_saveError', style: const TextStyle(fontSize: 13)),
-                actions: [
-                  TextButton(onPressed: () => Clipboard.setData(ClipboardData(text: _body.text)), child: const Text('Copy text')),
-                  TextButton(onPressed: () => unawaited(_persist()), child: const Text('Retry')),
-                ],
-              ),
-            if (_conflict != null)
-              MaterialBanner(
-                backgroundColor: p.amber.withOpacity(0.12),
-                content: const Text('This file changed on disk while you were editing.', style: TextStyle(fontSize: 13)),
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      final c = _conflict!;
-                      setState(() => _conflict = null);
-                      // keep my text: adopt the disk version as the new base so my next save overwrites it
-                      _baseBody = c.body;
-                      _baseTitle = c.title;
-                      _prompt = c;
-                      _markDirty();
-                    },
-                    child: const Text('Keep mine'),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      final c = _conflict!;
-                      _load(c);
-                    },
-                    child: const Text('Load disk version'),
-                  ),
-                ],
-              ),
-            if (_findOpen && !zen) _findBar(p),
-            Expanded(
-              flex: 5,
-              child: CodeEditor(
-                key: ValueKey(_docKey),
-                controller: _body,
-                focusNode: _focus,
-                undoController: _undo,
-                fontFamily: family.first,
-                fontFallback: family,
-                fontSize: ds.editorFontSize,
-                lineNumbers: ds.lineNumbers,
-                wordWrap: ds.wordWrap,
-                lineHeight: ds.lineHeight == 'compact' ? 1.4 : (ds.lineHeight == 'loose' ? 2.0 : 1.7),
-                tabWidth: ds.tabWidth,
-                popup: _suggestions.isNotEmpty ? _suggestionStrip(p) : null,
-                popupHeight: (_suggestions.length > 7 ? 7 : _suggestions.length) * 42.0,
-                scrollController: _scroll,
-                hint: 'Write your prompt…  Try / for snippets, // for prompts, @ for links, {{ for variables.',
-              ),
+                if (!zen) _dock(p),
+              ]),
             ),
-            if (_insights && !zen)
-              Expanded(
-                flex: 4,
-                child: Container(
-                  decoration: BoxDecoration(border: Border(top: BorderSide(color: p.border))),
-                  child: ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: _body,
-                    builder: (context, v, _) => EditorInsights(
-                      text: v.text,
-                      blocks: _blocks,
-                      profileId: ref.watch(vaultProvider).data.settings.scoringProfile,
-                      onProfile: (id) => ref.read(vaultProvider.notifier).updateSettings(ref.read(vaultProvider).data.settings.clone()..scoringProfile = id),
-                    ),
-                  ),
-                ),
-              ),
-            _bottomBar(p, ds, zen),
+            if (zen) Positioned(top: 8, right: 10, child: RailButton(icon: Icons.fullscreen_exit, tooltip: 'Exit Zen mode', color: p.textSecondary, onTap: () => _menu('zen'))),
           ]),
         ),
       ),
     );
   }
 
-  Widget _metaChip(String label, Color color, VoidCallback onTap) => Padding(
-        padding: const EdgeInsets.only(right: 8, top: 6, bottom: 6),
-        child: PfChip(label: label, color: color, selected: true, onTap: onTap),
+  // ---- header: title, format, overflow menu
+
+  Widget _header(PfPalette p, String fmtLabel, Prompt? stored) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 4, 0),
+      child: Row(children: [
+        Expanded(
+          child: TextField(
+            controller: _title,
+            onChanged: (_) => _markDirty(),
+            textCapitalization: TextCapitalization.sentences,
+            style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w700, letterSpacing: -0.3),
+            decoration: const InputDecoration(hintText: 'Untitled prompt', border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, filled: false, isDense: true, contentPadding: EdgeInsets.symmetric(vertical: 6)),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Material(
+          color: p.surface,
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: _pickFormat,
+            child: Container(
+              height: 34,
+              padding: const EdgeInsets.only(left: 11, right: 5),
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: p.border)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(fmtLabel, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: p.textSecondary)),
+                Icon(Icons.keyboard_arrow_down, size: 18, color: p.textTertiary),
+              ]),
+            ),
+          ),
+        ),
+        _moreMenu(stored),
+      ]),
+    );
+  }
+
+  Widget _moreMenu(Prompt? stored) => PopupMenuButton<String>(
+        tooltip: 'More',
+        onSelected: _menu,
+        icon: const Icon(Icons.more_vert, size: 22),
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: 'new', child: Text('New prompt')),
+          const PopupMenuItem(value: 'find', child: Text('Find & replace')),
+          const PopupMenuItem(value: 'zen', child: Text('Zen mode')),
+          const PopupMenuDivider(),
+          const PopupMenuItem(value: 'version', child: Text('Save version…')),
+          const PopupMenuItem(value: 'history', child: Text('Version history')),
+          const PopupMenuItem(value: 'related', child: Text('Related & backlinks')),
+          const PopupMenuDivider(),
+          const PopupMenuItem(value: 'copy', child: Text('Copy text')),
+          const PopupMenuItem(value: 'export', child: Text('Export / share…')),
+          PopupMenuItem(value: 'fav', child: Text(stored?.favorite == true ? 'Remove favorite' : 'Favorite')),
+          PopupMenuItem(value: 'pin', child: Text(stored?.pinned == true ? 'Unpin' : 'Pin to top')),
+          PopupMenuItem(value: 'revisit', child: Text(stored?.needsRevisit != null ? 'Clear revisit flag' : 'Flag for revisit…')),
+          const PopupMenuItem(value: 'duplicate', child: Text('Duplicate')),
+          const PopupMenuDivider(),
+          const PopupMenuItem(value: 'template', child: Text('Save as template…')),
+          const PopupMenuItem(value: 'snippet', child: Text('Save as snippet…')),
+          const PopupMenuDivider(),
+          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+        ],
       );
+
+  // ---- sub header: category / status / tags + save state
+
+  Widget _subHeader(PfPalette p, Prompt? stored) {
+    final cat = categoryById(_category);
+    final status = statusById(_status);
+    return SizedBox(
+      height: 36,
+      child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.fromLTRB(16, 4, 12, 4), children: [
+        _miniChip(cat.label, pfColor(cat.color), _pickCategory, dot: true),
+        _miniChip(status.label, pfColor(status.color), _pickStatus, dot: true),
+        _miniChip(_tags.isEmpty ? 'Add tags' : _tags.map((t) => '#$t').join(' '), p.textSecondary, _editTags, icon: Icons.sell_outlined),
+      ]),
+    );
+  }
+
+  Widget _miniChip(String label, Color color, VoidCallback onTap, {bool dot = false, IconData? icon}) {
+    final p = context.pf;
+    return Padding(
+      padding: const EdgeInsets.only(right: 7),
+      child: Material(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: color.withValues(alpha: 0.35))),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (dot) Container(width: 7, height: 7, margin: const EdgeInsets.only(right: 6), decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+              if (icon != null) Padding(padding: const EdgeInsets.only(right: 5), child: Icon(icon, size: 13, color: p.textTertiary)),
+              Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: dot ? color : p.textSecondary)),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---- action rail
+
+  Widget _rail(PfPalette p, BrainState brain, Prompt? stored) {
+    final IconData saveIcon;
+    final Color saveColor;
+    final String saveTip;
+    if (_saveError != null) {
+      saveIcon = Icons.error_outline;
+      saveColor = p.red;
+      saveTip = 'Save failed — tap to retry';
+    } else if (_saving || _dirty) {
+      saveIcon = Icons.sync;
+      saveColor = p.amber;
+      saveTip = 'Saving… tap to save now';
+    } else if (stored != null) {
+      saveIcon = Icons.check_circle_outline;
+      saveColor = p.green;
+      saveTip = 'Saved to your folder';
+    } else {
+      saveIcon = Icons.save_outlined;
+      saveColor = p.textSecondary;
+      saveTip = 'Save';
+    }
+    final level = brain.model?.level.level;
+    return EditorActionRail(children: [
+      RailButton(icon: saveIcon, tooltip: saveTip, color: saveColor, onTap: () => unawaited(_persist())),
+      RailButton(icon: Icons.history_toggle_off, tooltip: 'Save version', onTap: () => _menu('version')),
+      const RailDivider(),
+      ValueListenableBuilder<UndoHistoryValue>(
+        valueListenable: _undo,
+        builder: (context, v, _) => Row(children: [
+          RailButton(icon: Icons.undo, tooltip: 'Undo', onTap: v.canUndo ? _undo.undo : null),
+          RailButton(icon: Icons.redo, tooltip: 'Redo', onTap: v.canRedo ? _undo.redo : null),
+        ]),
+      ),
+      RailButton(icon: Icons.search, tooltip: 'Find & replace', active: _findOpen, onTap: () => _menu('find')),
+      const RailDivider(),
+      RailButton(icon: Icons.insights_outlined, tooltip: 'DNA & analyzer', active: _insights, onTap: () => setState(() => _insights = !_insights)),
+      RailButton(icon: Icons.fullscreen, tooltip: 'Zen mode', onTap: () => _menu('zen')),
+      const RailDivider(),
+      _BrainPill(level: level, building: brain.building, onTap: () => unawaited(showBrainSheet(context))),
+      const SizedBox(width: 8),
+      Center(
+        child: FilledButton.icon(
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 36), padding: const EdgeInsets.symmetric(horizontal: 14), visualDensity: VisualDensity.compact),
+          icon: const Icon(Icons.auto_fix_high, size: 18),
+          label: const Text('Tools'),
+          onPressed: () async {
+            FocusScope.of(context).unfocus();
+            await showEditorTools(context, this);
+          },
+        ),
+      ),
+      const RailDivider(),
+      RailButton(icon: Icons.copy, tooltip: 'Copy text', onTap: _copyText),
+      RailButton(icon: Icons.file_download_outlined, tooltip: 'Download / export', onTap: () => _menu('export')),
+      RailButton(icon: Icons.add, tooltip: 'New prompt', onTap: () => _menu('new')),
+      RailButton(icon: _toolsOpen ? Icons.expand_less : Icons.expand_more, tooltip: _toolsOpen ? 'Hide tool rows' : 'Show tool rows', onTap: () => setState(() => _toolsOpen = !_toolsOpen)),
+    ]);
+  }
+
+  // ---- the editor card
+
+  Widget _editorCard(PfPalette p, DeviceSettings ds, List<String> family, bool zen, Prompt? stored) {
+    final focused = _focus.hasFocus;
+    final editor = CodeEditor(
+      key: ValueKey(_docKey),
+      controller: _body,
+      focusNode: _focus,
+      undoController: _undo,
+      fontFamily: family.first,
+      fontFallback: family,
+      fontSize: ds.editorFontSize,
+      lineNumbers: ds.lineNumbers,
+      wordWrap: ds.wordWrap,
+      lineHeight: ds.lineHeight == 'compact' ? 1.4 : (ds.lineHeight == 'loose' ? 2.0 : 1.7),
+      tabWidth: ds.tabWidth,
+      popup: _suggestions.isNotEmpty ? SuggestionPopup(items: _suggestions, onPick: _acceptSuggestion) : null,
+      popupHeight: SuggestionPopup.heightFor(_suggestions.length),
+      popupWidth: SuggestionPopup.widthFor(_suggestions, 300),
+      scrollController: _scroll,
+      hint: 'Write your prompt…  Try / for snippets, // for prompts, @ for links, {{ for variables.',
+    );
+    if (zen) return editor;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        decoration: BoxDecoration(
+          color: p.editorBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: focused ? p.blue.withValues(alpha: 0.7) : p.border),
+          boxShadow: focused ? [BoxShadow(color: p.blue.withValues(alpha: 0.16), blurRadius: 16, spreadRadius: 0.5)] : null,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(children: [
+          Expanded(child: editor),
+          _cardFooter(p, ds, stored),
+        ]),
+      ),
+    );
+  }
+
+  Widget _cardFooter(PfPalette p, DeviceSettings ds, Prompt? stored) {
+    final d = ref.watch(vaultProvider).data;
+    ref.watch(tokenizerProvider);
+    final String saveText;
+    final Color saveColor;
+    if (_saveError != null) {
+      saveText = 'Save failed';
+      saveColor = p.red;
+    } else if (_saving || _dirty) {
+      saveText = 'Saving…';
+      saveColor = p.amber;
+    } else if (stored != null) {
+      saveText = 'Saved · ${_clock(stored.updatedAt)}';
+      saveColor = p.green;
+    } else {
+      saveText = 'Not saved yet';
+      saveColor = p.textTertiary;
+    }
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _body,
+      builder: (context, v, _) {
+        final words = Utils.countWords(v.text);
+        final model = d.settings.selectedModel;
+        final custom = d.settings.customModels;
+        final tok = TokenEstimator.estimateTokens(v.text, model, custom);
+        final ctx = TokenEstimator.contextStatus(v.text, model, custom);
+        final exact = TokenEstimator.isExact(model, custom);
+        final modelLabel = TokenEstimator.getModel(model, custom).label;
+        final overWords = ds.wordCountWarning > 0 && words > ds.wordCountWarning;
+        final statColor = ctx.level == 'over' ? p.red : (overWords || ctx.level == 'warn' ? p.amber : p.textTertiary);
+        final barColor = ctx.level == 'over' ? p.red : (ctx.level == 'warn' ? p.amber : p.blue);
+        return Container(
+          decoration: BoxDecoration(color: p.surface.withValues(alpha: 0.55), border: Border(top: BorderSide(color: p.borderSubtle))),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 10, 0),
+              child: SizedBox(
+                height: 34,
+                child: Row(children: [
+                  Text(saveText, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: saveColor)),
+                  Padding(padding: const EdgeInsets.symmetric(horizontal: 7), child: Text('·', style: TextStyle(color: p.textTertiary))),
+                  Expanded(
+                    child: Text(
+                      overWords ? '$words words — over your ${ds.wordCountWarning}-word limit · ${exact ? '' : '~'}$tok tok' : '$words words · ${exact ? '' : '~'}$tok tok ($modelLabel)',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11.5, color: statColor, fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback),
+                    ),
+                  ),
+                  if (_liveScore != null)
+                    Tooltip(
+                      message: 'Live analyzer score',
+                      child: Container(
+                        margin: const EdgeInsets.only(left: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: scoreColor(context, _liveScore!).withValues(alpha: 0.16), borderRadius: BorderRadius.circular(10)),
+                        child: Text('$_liveScore', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: scoreColor(context, _liveScore!))),
+                      ),
+                    ),
+                ]),
+              ),
+            ),
+            SizedBox(height: 2, child: LinearProgressIndicator(value: (ctx.pct / 100).clamp(0.0, 1.0).toDouble(), minHeight: 2, color: barColor, backgroundColor: Colors.transparent)),
+          ]),
+        );
+      },
+    );
+  }
+
+  // ---- bottom dock: brain predictions + typing triggers
+
+  Widget _dock(PfPalette p) {
+    return Container(
+      decoration: BoxDecoration(color: p.surface, border: Border(top: BorderSide(color: p.border))),
+      child: SafeArea(
+        top: false,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (_predictions.isNotEmpty && _focus.hasFocus) BrainStrip(hits: _predictions, onPick: _acceptHit),
+          SizedBox(
+            height: 42,
+            child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8), children: [
+              for (final t in const [
+                ['/', 'snippet'],
+                ['//', 'prompt'],
+                ['///', 'pattern'],
+                ['\\', 'template'],
+                ['\\\\', 'block'],
+                ['@', 'link'],
+                ['{{}}', 'variable'],
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 6, top: 7, bottom: 7),
+                  child: ActionChip(
+                    visualDensity: VisualDensity.compact,
+                    label: Text('${t[0]} ${t[1]}', style: TextStyle(fontSize: 12, fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback)),
+                    onPressed: () {
+                      if (t[0] == '{{}}') {
+                        insertAtCursor('{{}}');
+                        final off = _body.selection.baseOffset - 2;
+                        _body.selection = TextSelection.collapsed(offset: off);
+                        _focus.requestFocus();
+                      } else {
+                        _quickInsert(t[0]);
+                      }
+                    },
+                  ),
+                ),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
 
   Widget _findBar(PfPalette p) => Container(
         color: p.surface,
@@ -983,190 +1317,38 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
           ]),
         ]),
       );
-
-  /// Dropdown-style completion list (like the web editor): the typed word's best matches, each with a type tag.
-  Widget _suggestionStrip(PfPalette p) {
-    final shown = _suggestions.take(7).toList();
-    final mono = TextStyle(fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback, fontSize: 14, color: p.text);
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 294),
-      decoration: BoxDecoration(
-        color: p.raised,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: p.border),
-        boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 6))],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: ListView(
-        shrinkWrap: true,
-        padding: EdgeInsets.zero,
-        children: [
-          for (var i = 0; i < shown.length; i++)
-            InkWell(
-              onTap: () => _acceptSuggestion(shown[i]),
-              child: Container(
-                height: 42,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  color: i == 0 ? p.amber.withOpacity(0.10) : null,
-                  border: Border(left: BorderSide(color: i == 0 ? p.amber : Colors.transparent, width: 3)),
-                ),
-                child: Row(children: [
-                  Expanded(child: Text(Utils.truncate(shown[i].label.replaceAll('\n', ' '), 44), maxLines: 1, overflow: TextOverflow.ellipsis, style: mono)),
-                  const SizedBox(width: 12),
-                  Text(shown[i].src.toUpperCase(), style: TextStyle(fontSize: 10.5, letterSpacing: 0.8, fontWeight: FontWeight.w600, color: p.textTertiary)),
-                ]),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  IconData _iconFor(String src) {
-    switch (src) {
-      case 'snippet':
-        return Icons.bolt;
-      case 'prompt':
-        return Icons.description_outlined;
-      case 'pattern':
-        return Icons.account_tree_outlined;
-      case 'template':
-        return Icons.dashboard_customize_outlined;
-      case 'block':
-        return Icons.view_agenda_outlined;
-      case 'link':
-        return Icons.link;
-      case 'variable':
-        return Icons.data_object;
-      default:
-        return Icons.auto_awesome_outlined;
-    }
-  }
-
-  Widget _bottomBar(PfPalette p, DeviceSettings ds, bool zen) {
-    final d = ref.watch(vaultProvider).data;
-    ref.watch(tokenizerProvider);
-    return Container(
-      decoration: BoxDecoration(color: p.surface, border: Border(top: BorderSide(color: p.border))),
-      child: SafeArea(
-        top: false,
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          SizedBox(
-            height: 40,
-            child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8), children: [
-              for (final t in const [
-                ['/', 'snippet'],
-                ['//', 'prompt'],
-                ['///', 'pattern'],
-                ['\\', 'template'],
-                ['\\\\', 'block'],
-                ['@', 'link'],
-                ['{{}}', 'variable'],
-              ])
-                Padding(
-                  padding: const EdgeInsets.only(right: 6, top: 6, bottom: 6),
-                  child: ActionChip(
-                    visualDensity: VisualDensity.compact,
-                    label: Text('${t[0]} ${t[1]}', style: TextStyle(fontSize: 12, fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback)),
-                    onPressed: () {
-                      if (t[0] == '{{}}') {
-                        insertAtCursor('{{}}');
-                        final off = _body.selection.baseOffset - 2;
-                        _body.selection = TextSelection.collapsed(offset: off);
-                        _focus.requestFocus();
-                      } else {
-                        _quickInsert(t[0]);
-                      }
-                    },
-                  ),
-                ),
-            ]),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 4, 4),
-            child: ValueListenableBuilder<TextEditingValue>(
-              valueListenable: _body,
-              builder: (context, v, _) {
-                final words = Utils.countWords(v.text);
-                final tok = TokenEstimator.estimateTokens(v.text, d.settings.selectedModel, d.settings.customModels);
-                final ctx = TokenEstimator.contextStatus(v.text, d.settings.selectedModel, d.settings.customModels);
-                final overWords = ds.wordCountWarning > 0 && words > ds.wordCountWarning;
-                final color = overWords || ctx.level == 'over' ? (ctx.level == 'over' ? p.red : p.amber) : (ctx.level == 'warn' ? p.amber : p.textSecondary);
-                final exact = TokenEstimator.isExact(d.settings.selectedModel, d.settings.customModels);
-                return Row(children: [
-                  if (_liveScore != null)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: Tooltip(
-                        message: 'Live analyzer score',
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(color: scoreColor(context, _liveScore!).withOpacity(0.16), borderRadius: BorderRadius.circular(10)),
-                          child: Text('$_liveScore', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: scoreColor(context, _liveScore!))),
-                        ),
-                      ),
-                    ),
-                  Expanded(
-                    child: Text(
-                      overWords
-                          ? '$words words — over your ${ds.wordCountWarning}-word limit · ${exact ? '' : '~'}$tok tokens'
-                          : '$words words · ${v.text.length} chars · ${exact ? '' : '~'}$tok tokens',
-                      style: TextStyle(fontSize: 12, color: color, fontWeight: overWords ? FontWeight.w700 : FontWeight.w400),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  IconButton(tooltip: 'Find & replace', icon: const Icon(Icons.find_in_page_outlined, size: 22), onPressed: () => _menu('find')),
-                  IconButton(tooltip: zen ? 'Exit Zen mode' : 'Zen mode', icon: Icon(zen ? Icons.fullscreen_exit : Icons.fullscreen, size: 22), onPressed: () => _menu('zen')),
-                  IconButton(tooltip: 'Copy', icon: const Icon(Icons.copy, size: 20), onPressed: _copyText),
-                  FilledButton.tonalIcon(
-                    icon: const Icon(Icons.auto_fix_high, size: 18),
-                    label: const Text('Tools'),
-                    onPressed: () async {
-                      FocusScope.of(context).unfocus();
-                      await showEditorTools(context, this);
-                    },
-                  ),
-                ]);
-              },
-            ),
-          ),
-        ]),
-      ),
-    );
-  }
 }
 
-class _SaveIndicator extends StatelessWidget {
-  final bool dirty;
-  final bool saving;
-  final bool error;
-  final bool saved;
-  const _SaveIndicator({required this.dirty, required this.saving, required this.error, required this.saved});
+/// The little brain button on the action rail: shows the brain level and opens the brain dashboard.
+class _BrainPill extends StatelessWidget {
+  final int? level;
+  final bool building;
+  final VoidCallback onTap;
+  const _BrainPill({required this.level, required this.building, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final p = context.pf;
-    IconData icon;
-    Color color;
-    String tip;
-    if (error) {
-      icon = Icons.error_outline;
-      color = p.red;
-      tip = 'Save failed';
-    } else if (saving || dirty) {
-      icon = Icons.sync;
-      color = p.amber;
-      tip = 'Saving…';
-    } else if (saved) {
-      icon = Icons.check_circle_outline;
-      color = p.green;
-      tip = 'Saved to folder';
-    } else {
-      icon = Icons.edit_outlined;
-      color = p.textTertiary;
-      tip = 'Not saved yet';
-    }
-    return Tooltip(message: tip, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: Icon(icon, size: 18, color: color)));
+    return Center(
+      child: Tooltip(
+        message: 'Editor brain',
+        child: Material(
+          color: p.violet.withValues(alpha: 0.14),
+          shape: StadiumBorder(side: BorderSide(color: p.violet.withValues(alpha: 0.45))),
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (building) SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: p.violet)) else Icon(Icons.psychology, size: 17, color: p.violet),
+                const SizedBox(width: 5),
+                Text(level == null ? 'Brain' : 'Lv $level', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: p.violet)),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
