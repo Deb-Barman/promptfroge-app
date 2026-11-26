@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/app_drawer.dart';
+import '../../state/brain_provider.dart';
 import '../../state/device_settings.dart';
 import '../../state/vault_notifier.dart';
 import '../search_sheet.dart';
 import '../theme/app_theme.dart';
+import 'brain_sheet.dart';
 import 'brand_logo.dart';
 import 'common.dart';
 
@@ -97,7 +99,11 @@ class PfTopBar extends ConsumerWidget {
     return Container(
       height: 52 + top,
       padding: EdgeInsets.only(top: top, left: 4, right: 4),
-      decoration: BoxDecoration(color: p.surface, border: Border(bottom: BorderSide(color: p.borderSubtle))),
+      decoration: BoxDecoration(
+        color: p.surface,
+        border: Border(bottom: BorderSide(color: p.borderSubtle)),
+        gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [p.surface2, p.surface]),
+      ),
       child: Row(children: [
         IconButton(tooltip: 'Toggle navigation', icon: const Icon(Icons.menu_rounded), onPressed: onMenu),
         const BrandMarkTile(size: 30, glow: false),
@@ -107,9 +113,9 @@ class PfTopBar extends ConsumerWidget {
             behavior: HitTestBehavior.opaque,
             onTap: () => showSearchSheet(context, ref),
             child: Container(
-              height: 34,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: BoxDecoration(color: p.bg, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.borderSubtle)),
+              height: 36,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(color: p.bg, borderRadius: BorderRadius.circular(12), border: Border.all(color: p.border)),
               child: Row(children: [
                 Icon(Icons.search, size: 17, color: p.textTertiary),
                 const SizedBox(width: 8),
@@ -146,6 +152,7 @@ class PfStatusBar extends ConsumerWidget {
       chars += t.body.length + t.name.length;
     }
     final mb = chars / 1048576;
+    final brainLevel = ref.watch(brainProvider.select((b) => b.model?.level.level));
     final words = path == '/editor' ? ref.watch(editorWordsProvider) : 0;
     final mono = TextStyle(fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback, fontSize: 11, color: p.textTertiary);
     return Container(
@@ -155,7 +162,7 @@ class PfStatusBar extends ConsumerWidget {
       child: Row(children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-          decoration: BoxDecoration(color: p.amber.withOpacity(0.12), borderRadius: BorderRadius.circular(4)),
+          decoration: BoxDecoration(color: p.amber.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(4)),
           child: Text(kViewLabels[path] ?? '', style: mono.copyWith(color: p.amber, fontWeight: FontWeight.w600)),
         ),
         const SizedBox(width: 8),
@@ -163,6 +170,18 @@ class PfStatusBar extends ConsumerWidget {
         const SizedBox(width: 8),
         Text('·', style: mono),
         const Spacer(),
+        if (brainLevel != null) ...[
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => showBrainSheet(context),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.psychology, size: 13, color: p.violet),
+              const SizedBox(width: 3),
+              Text('Lv $brainLevel', style: mono.copyWith(color: p.violet, fontWeight: FontWeight.w700)),
+            ]),
+          ),
+          const SizedBox(width: 10),
+        ],
         Text('${mb < 0.1 ? mb.toStringAsFixed(2) : mb.toStringAsFixed(1)} MB used locally', style: mono),
       ]),
     );
@@ -337,7 +356,7 @@ class PfStatCard extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: p.borderSubtle)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(icon, size: 22, color: p.textTertiary.withOpacity(0.7)),
+        Icon(icon, size: 22, color: p.textTertiary.withValues(alpha: 0.7)),
         const SizedBox(height: 10),
         Text(value, style: TextStyle(fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback, fontSize: 36, fontWeight: FontWeight.w700, letterSpacing: -1, height: 1.1, color: p.text)),
         const SizedBox(height: 4),
