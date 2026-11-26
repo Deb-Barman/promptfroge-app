@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/app_theme.dart';
 
 /// How long the branded loading screen is held on every launch (the app waits at least this long).
-const Duration kSplashDuration = Duration(milliseconds: 4200);
+const Duration kSplashDuration = Duration(milliseconds: 2600);
 
 /// True until [kSplashDuration] has passed since launch; the router keeps the splash on screen meanwhile.
 final splashHoldProvider = StateProvider<bool>((ref) => true);
