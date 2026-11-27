@@ -92,8 +92,31 @@ class SettingsScreen extends ConsumerWidget {
           items: const [DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')), DropdownMenuItem(value: ThemeMode.light, child: Text('Light')), DropdownMenuItem(value: ThemeMode.system, child: Text('Follow system'))],
           onChanged: (v) => dev.update(ds.copyWith(themeMode: v)),
         ),
-        Text('Interface scale: ${(ds.uiScale * 100).round()}%', style: TextStyle(color: p.textSecondary, fontSize: 13)),
-        Slider(value: ds.uiScale, min: 0.85, max: 1.3, divisions: 9, label: '${(ds.uiScale * 100).round()}%', onChanged: (v) => dev.update(ds.copyWith(uiScale: double.parse(v.toStringAsFixed(2))))),
+        Row(children: [
+          Expanded(child: Text('Interface size', style: TextStyle(color: p.text, fontSize: 13.5, fontWeight: FontWeight.w700))),
+          Text('${(ds.uiZoom * 100).round()}%', style: TextStyle(color: p.amber, fontSize: 13.5, fontWeight: FontWeight.w800)),
+        ]),
+        Text('Scales everything at once — text, icons, spacing — like zooming a web page. Pick what feels comfortable on your screen.', style: TextStyle(color: p.textTertiary, fontSize: 12, height: 1.4)),
+        const SizedBox(height: 4),
+        Slider(value: ds.uiZoom.clamp(kMinUiZoom, kMaxUiZoom).toDouble(), min: kMinUiZoom, max: kMaxUiZoom, divisions: 16, label: '${(ds.uiZoom * 100).round()}%', onChanged: (v) => dev.update(ds.copyWith(uiZoom: double.parse(v.toStringAsFixed(2))))),
+        Wrap(spacing: 8, runSpacing: 6, children: [
+          for (final z in const [(0.6, 'Tiny'), (0.75, 'Small'), (0.9, 'Compact'), (1.0, 'Standard'), (1.15, 'Large')])
+            ChoiceChip(
+              label: Text('${z.$2} · ${(z.$1 * 100).round()}%'),
+              selected: (ds.uiZoom - z.$1).abs() < 0.03,
+              onSelected: (_) => dev.update(ds.copyWith(uiZoom: z.$1)),
+            ),
+        ]),
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(child: Text('Text size', style: TextStyle(color: p.text, fontSize: 13.5, fontWeight: FontWeight.w700))),
+          Text('${(ds.uiScale * 100).round()}%', style: TextStyle(color: p.amber, fontSize: 13.5, fontWeight: FontWeight.w800)),
+        ]),
+        Slider(value: ds.uiScale.clamp(0.7, 1.5).toDouble(), min: 0.7, max: 1.5, divisions: 16, label: '${(ds.uiScale * 100).round()}%', onChanged: (v) => dev.update(ds.copyWith(uiScale: double.parse(v.toStringAsFixed(2))))),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(icon: const Icon(Icons.restart_alt, size: 18), label: const Text('Reset size'), onPressed: () => dev.update(ds.copyWith(uiZoom: kDefaultUiZoom, uiScale: 1.0))),
+        ),
         ]),
         _SettingsGroup(title: 'Editor (this device)', children: [
         dropdown<String>(
