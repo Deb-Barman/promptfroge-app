@@ -107,7 +107,8 @@ class AppTheme {
       surface: p.surface,
       onSurface: p.text,
     );
-    final base = ThemeData(brightness: p.brightness, useMaterial3: true, colorScheme: scheme);
+    final base = ThemeData(brightness: p.brightness, useMaterial3: true,
+      visualDensity: const VisualDensity(horizontal: -1, vertical: -1), colorScheme: scheme);
     final text = base.textTheme.apply(bodyColor: p.text, displayColor: p.text, fontFamily: uiFontFallback.first, fontFamilyFallback: uiFontFallback);
     return base.copyWith(
       scaffoldBackgroundColor: p.bg,
@@ -136,7 +137,7 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: p.surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: p.border)),
         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: p.border)),
         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: p.blue, width: 1.3)),
@@ -146,7 +147,7 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: p.amber,
           foregroundColor: const Color(0xFF1A1206),
-          minimumSize: const Size(44, 44),
+          minimumSize: const Size(40, 40),
           padding: const EdgeInsets.symmetric(horizontal: 18),
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -157,7 +158,7 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: p.text,
           backgroundColor: p.surface3,
-          minimumSize: const Size(44, 44),
+          minimumSize: const Size(40, 40),
           padding: const EdgeInsets.symmetric(horizontal: 18),
           textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
           side: BorderSide(color: p.border),
