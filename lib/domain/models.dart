@@ -553,32 +553,52 @@ class CustomModel {
   String id;
   String label;
   String vendor;
+
+  /// Heading the model is clustered under in dropdowns (blank = the vendor name).
+  String group;
   double charsPerToken;
   int contextWindow;
   double priceIn;
   double priceOut;
+  String priceNote;
 
-  CustomModel({String? id, this.label = '', this.vendor = 'Custom', this.charsPerToken = 4.0, this.contextWindow = 32000, this.priceIn = 0, this.priceOut = 0})
+  CustomModel(
+      {String? id,
+      this.label = '',
+      this.vendor = 'Custom',
+      this.group = '',
+      this.charsPerToken = 4.0,
+      this.contextWindow = 32000,
+      this.priceIn = 0,
+      this.priceOut = 0,
+      this.priceNote = 'per 1M tokens'})
       : id = id ?? Utils.uid('model');
+
+  /// The heading this model is listed under.
+  String get groupLabel => group.trim().isEmpty ? (vendor.trim().isEmpty ? 'Custom' : vendor.trim()) : group.trim();
 
   Map<String, dynamic> toMap() => {
         'id': id,
         'label': label,
         'vendor': vendor,
+        'group': group,
         'charsPerToken': charsPerToken,
         'contextWindow': contextWindow,
         'priceIn': priceIn,
         'priceOut': priceOut,
+        'priceNote': priceNote,
       };
 
   factory CustomModel.fromMap(Map<String, dynamic> m) => CustomModel(
         id: m['id'] is String ? m['id'] as String : null,
         label: _s(m['label']),
         vendor: _s(m['vendor'], 'Custom'),
+        group: _s(m['group'], ''),
         charsPerToken: m['charsPerToken'] is num ? (m['charsPerToken'] as num).toDouble() : 4.0,
         contextWindow: _i(m['contextWindow'], 32000),
         priceIn: m['priceIn'] is num ? (m['priceIn'] as num).toDouble() : 0,
         priceOut: m['priceOut'] is num ? (m['priceOut'] as num).toDouble() : 0,
+        priceNote: _s(m['priceNote'], 'per 1M tokens'),
       );
 }
 
@@ -618,6 +638,9 @@ class VaultSettings {
   /// Category given to new prompts.
   String defaultCategory;
 
+  /// Hide the built-in models from the model lists (custom models are always shown).
+  bool hideBuiltinModels;
+
   VaultSettings({
     this.selectedModel = 'claude',
     this.scoringProfile = 'default',
@@ -628,6 +651,7 @@ class VaultSettings {
     Map<String, ChallengeAttempt>? challengeAttempts,
     this.volumeCallsPerMonth = 1000,
     this.defaultCategory = 'custom',
+    this.hideBuiltinModels = false,
   })  : customModels = customModels ?? <CustomModel>[],
         challengeProgress = challengeProgress ?? <String, bool>{},
         challengeAttempts = challengeAttempts ?? <String, ChallengeAttempt>{};
@@ -642,6 +666,7 @@ class VaultSettings {
         challengeAttempts: Map<String, ChallengeAttempt>.from(challengeAttempts),
         volumeCallsPerMonth: volumeCallsPerMonth,
         defaultCategory: defaultCategory,
+        hideBuiltinModels: hideBuiltinModels,
       );
 
   Map<String, dynamic> toMap() => {
@@ -654,6 +679,7 @@ class VaultSettings {
         'challengeAttempts': {for (final e in challengeAttempts.entries) e.key: e.value.toMap()},
         'volumeCallsPerMonth': volumeCallsPerMonth,
         'defaultCategory': defaultCategory,
+        'hideBuiltinModels': hideBuiltinModels,
       };
 
   factory VaultSettings.fromMap(Map<String, dynamic> m) {
@@ -683,6 +709,7 @@ class VaultSettings {
       challengeAttempts: attempts,
       volumeCallsPerMonth: _i(m['volumeCallsPerMonth'], 1000).clamp(1, 1000000000),
       defaultCategory: _s(m['defaultCategory'], 'custom'),
+      hideBuiltinModels: m['hideBuiltinModels'] == true,
     );
   }
 }
