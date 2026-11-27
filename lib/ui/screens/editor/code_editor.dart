@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -209,30 +211,41 @@ class _CodeEditorState extends State<CodeEditor> {
           ),
         ),
       );
-      if (widget.popup == null) return editor;
+      // Captured now, not read again inside the builder below: when a suggestion is accepted or the keyboard closes,
+      // the popup is cleared in the same frame the controller notifies, and the (older) builder must not see a null.
+      final popupWidget = widget.popup;
+      if (popupWidget == null) return editor;
+      final popupHeight = widget.popupHeight;
+      final popupWidthWanted = widget.popupWidth;
       final scroll = widget.scrollController;
       return Stack(children: [
         Positioned.fill(child: editor),
         ListenableBuilder(
           listenable: Listenable.merge([widget.controller, if (scroll != null) scroll]),
           builder: (context, _) {
-            final sel = widget.controller.selection;
-            final text = widget.controller.text;
-            if (!sel.isValid) return const SizedBox.shrink();
-            final tp = TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.ltr)..layout(maxWidth: widget.wordWrap ? textW : double.infinity);
-            final caret = tp.getOffsetForCaret(TextPosition(offset: sel.baseOffset.clamp(0, text.length)), Rect.zero);
-            final lh = widget.fontSize * _lineHeightFactor;
-            tp.dispose();
-            final off = (scroll != null && scroll.hasClients) ? scroll.offset : 0.0;
-            final popupW = (widget.popupWidth ?? (c.maxWidth - 16)).clamp(160.0, 340.0).toDouble();
-            final x = (gutterW + caret.dx - 10).clamp(8.0, (c.maxWidth - popupW - 8).clamp(8.0, 4000.0));
-            final yBelow = widget.padding.top + caret.dy + lh - off + 4;
-            var y = yBelow;
-            if (yBelow + widget.popupHeight > c.maxHeight - 4) {
-              final yAbove = widget.padding.top + caret.dy - off - widget.popupHeight - 4;
-              y = yAbove >= 4 ? yAbove : (c.maxHeight - widget.popupHeight - 4).clamp(4.0, 4000.0);
+            // A popup is a nicety: if anything about its placement goes wrong it must never take the editor down.
+            try {
+              final sel = widget.controller.selection;
+              final text = widget.controller.text;
+              if (!sel.isValid || !c.maxHeight.isFinite || !c.maxWidth.isFinite) return const SizedBox.shrink();
+              final tp = TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.ltr)..layout(maxWidth: widget.wordWrap ? textW : double.infinity);
+              final caret = tp.getOffsetForCaret(TextPosition(offset: sel.baseOffset.clamp(0, text.length)), Rect.zero);
+              final lh = widget.fontSize * _lineHeightFactor;
+              tp.dispose();
+              final off = (scroll != null && scroll.hasClients) ? scroll.offset : 0.0;
+              final popupW = (popupWidthWanted ?? (c.maxWidth - 16)).clamp(160.0, 340.0).toDouble();
+              final maxX = math.max(8.0, c.maxWidth - popupW - 8);
+              final x = (gutterW + caret.dx - 10).clamp(8.0, maxX).toDouble();
+              final yBelow = widget.padding.top + caret.dy + lh - off + 4;
+              var y = yBelow;
+              if (yBelow + popupHeight > c.maxHeight - 4) {
+                final yAbove = widget.padding.top + caret.dy - off - popupHeight - 4;
+                y = yAbove >= 4 ? yAbove : math.max(4.0, c.maxHeight - popupHeight - 4);
+              }
+              return Positioned(left: x, top: y, width: popupW, child: popupWidget);
+            } catch (_) {
+              return const SizedBox.shrink();
             }
-            return Positioned(left: x, top: y, width: popupW, child: widget.popup!);
           },
         ),
       ]);

@@ -42,28 +42,46 @@ Future<void> showWelcome(BuildContext context, WidgetRef ref) async {
   final takeTour = await showDialog<bool>(
     context: context,
     barrierDismissible: false,
-    builder: (ctx) {
+    builder: (ctx) => Consumer(builder: (ctx, ref, _) {
       final p = ctx.pf;
+      final ds = ref.watch(deviceSettingsProvider);
+      final dev = ref.read(deviceSettingsProvider.notifier);
+      final maxH = MediaQuery.of(ctx).size.height - 48;
       return Dialog(
-        insetPadding: const EdgeInsets.all(16),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 640),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Welcome to Prompt Forge', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 6),
-              Text("Everything here runs locally — nothing you write ever leaves this device. A quick look at what's available:", style: TextStyle(color: p.textSecondary, fontSize: 13.5, height: 1.4)),
-              const SizedBox(height: 12),
-              Flexible(
-                child: ListView(shrinkWrap: true, children: [
+          constraints: BoxConstraints(maxWidth: 520, maxHeight: maxH),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // everything that can grow scrolls; the buttons below never leave the dialog
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Welcome to Prompt Forge', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
+                  const SizedBox(height: 6),
+                  Text("Everything here runs locally — nothing you write ever leaves this device.", style: TextStyle(color: p.textSecondary, fontSize: 13, height: 1.4)),
+                  const SizedBox(height: 14),
+                  Text('INTERFACE SIZE', style: TextStyle(fontSize: 10.5, letterSpacing: 1, fontWeight: FontWeight.w800, color: p.textTertiary)),
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 6, runSpacing: 6, children: [
+                    for (final z in const [(0.6, 'Tiny'), (0.75, 'Small'), (0.9, 'Compact'), (1.0, 'Standard'), (1.15, 'Large')])
+                      ChoiceChip(
+                        visualDensity: VisualDensity.compact,
+                        label: Text(z.$2),
+                        selected: (ds.uiZoom - z.$1).abs() < 0.03,
+                        onSelected: (_) => dev.update(ds.copyWith(uiZoom: z.$1)),
+                      ),
+                  ]),
+                  const SizedBox(height: 4),
+                  Text('Changes instantly. You can change it any time in Settings.', style: TextStyle(color: p.textTertiary, fontSize: 11.5)),
+                  const SizedBox(height: 14),
                   for (final f in _features)
                     Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(border: Border.all(color: p.border), borderRadius: BorderRadius.circular(12)),
+                      margin: const EdgeInsets.only(bottom: 7),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(border: Border.all(color: p.borderSubtle), borderRadius: BorderRadius.circular(12), color: p.surface2),
                       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Icon(f.$1, color: p.amber, size: 22),
+                        Icon(f.$1, color: p.amber, size: 20),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -76,17 +94,19 @@ Future<void> showWelcome(BuildContext context, WidgetRef ref) async {
                     ),
                 ]),
               ),
-              const SizedBox(height: 8),
-              Row(children: [
-                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Skip, I'll explore")),
-                const Spacer(),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Take the 30-second tour')),
+                const SizedBox(height: 4),
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Skip, I'll explore")),
               ]),
-            ]),
-          ),
+            ),
+          ]),
         ),
       );
-    },
+    }),
   );
   markSeen();
   if (takeTour == true && context.mounted) await showTour(context);

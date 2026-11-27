@@ -2,11 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+const double kDefaultUiZoom = 0.9;
+const double kMinUiZoom = 0.5;
+const double kMaxUiZoom = 1.3;
+
 /// Per-device preferences (theme, scale, editor look). Stored in SharedPreferences,
 /// not in the vault, because they belong to the device rather than the notes.
 class DeviceSettings {
   final ThemeMode themeMode;
-  final double uiScale; // 0.85 .. 1.3
+  /// Text size multiplier (0.7 .. 1.5). Only text.
+  final double uiScale;
+
+  /// Interface size, like browser zoom: scales layout, icons and spacing together (0.5 .. 1.3).
+  /// 0.9 matches the compact look of the web app.
+  final double uiZoom;
   final double editorFontSize;
   final String editorFont;
   final int autosaveMs;
@@ -35,6 +44,7 @@ class DeviceSettings {
   const DeviceSettings({
     this.themeMode = ThemeMode.dark,
     this.uiScale = 1.0,
+    this.uiZoom = kDefaultUiZoom,
     this.editorFontSize = 14,
     this.editorFont = 'jetbrains',
     this.autosaveMs = 900,
@@ -52,6 +62,7 @@ class DeviceSettings {
   DeviceSettings copyWith({
     ThemeMode? themeMode,
     double? uiScale,
+    double? uiZoom,
     double? editorFontSize,
     String? editorFont,
     int? autosaveMs,
@@ -68,6 +79,7 @@ class DeviceSettings {
       DeviceSettings(
         themeMode: themeMode ?? this.themeMode,
         uiScale: uiScale ?? this.uiScale,
+        uiZoom: uiZoom ?? this.uiZoom,
         editorFontSize: editorFontSize ?? this.editorFontSize,
         editorFont: editorFont ?? this.editorFont,
         autosaveMs: autosaveMs ?? this.autosaveMs,
@@ -94,7 +106,8 @@ class DeviceSettingsNotifier extends Notifier<DeviceSettings> {
     final theme = _prefs.getString('theme') ?? 'dark';
     return DeviceSettings(
       themeMode: theme == 'light' ? ThemeMode.light : (theme == 'system' ? ThemeMode.system : ThemeMode.dark),
-      uiScale: _prefs.getDouble('uiScale') ?? 1.0,
+      uiScale: (_prefs.getDouble('uiScale') ?? 1.0).clamp(0.7, 1.5).toDouble(),
+      uiZoom: (_prefs.getDouble('uiZoom') ?? kDefaultUiZoom).clamp(kMinUiZoom, kMaxUiZoom).toDouble(),
       editorFontSize: _prefs.getDouble('editorFontSize') ?? 14,
       editorFont: _prefs.getString('editorFont') ?? 'jetbrains',
       autosaveMs: _prefs.getInt('autosaveMs') ?? 900,
@@ -114,6 +127,7 @@ class DeviceSettingsNotifier extends Notifier<DeviceSettings> {
     state = s;
     _prefs.setString('theme', s.themeMode == ThemeMode.light ? 'light' : (s.themeMode == ThemeMode.system ? 'system' : 'dark'));
     _prefs.setDouble('uiScale', s.uiScale);
+    _prefs.setDouble('uiZoom', s.uiZoom);
     _prefs.setDouble('editorFontSize', s.editorFontSize);
     _prefs.setString('editorFont', s.editorFont);
     _prefs.setInt('autosaveMs', s.autosaveMs);

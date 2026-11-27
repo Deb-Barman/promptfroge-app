@@ -38,6 +38,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   String _sort = 'updated';
   String? _groupId;
   final Set<String> _selected = {};
+  final ScrollController _scroll = ScrollController();
+  int _perPage = 50; // 0 = all
+  int _page = 0;
+  String _sig = '';
 
   bool _selectMode = false;
   bool get _selecting => _selectMode || _selected.isNotEmpty;
@@ -49,6 +53,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
   @override
   void dispose() {
+    _scroll.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -351,22 +356,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     final libGroups = d.groups.values.where((g) => g.kind == 'library').toList();
     final filtersActive = _tag.isNotEmpty || _favOnly || _groupId != null || _category != 'all' || _query.isNotEmpty;
 
-    Widget toggle(String label, bool on, VoidCallback onTap, {Color? color}) {
-      final c = color ?? p.amber;
-      return Material(
-        color: on ? c.withOpacity(0.16) : p.surface3,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: on ? c : p.border)),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: on ? c : p.text)),
-          ),
-        ),
-      );
-    }
-
     Widget tagChip(String t) {
       final on = _tag == t;
       return GestureDetector(
@@ -408,6 +397,23 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             ],
           );
 
+    final activeFilterCount = (_tag.isNotEmpty ? 1 : 0) + (_favOnly ? 1 : 0) + (_showArchived ? 1 : 0) + (_groupId != null ? 1 : 0) + (_category != 'all' ? 1 : 0) + (_sort != 'updated' ? 1 : 0);
+    // any change of the filters goes back to the first page
+    final sig = '$_query|$_category|$_tag|$_favOnly|$_showArchived|$_sort|$_groupId|$_perPage';
+    if (sig != _sig) {
+      _sig = sig;
+      _page = 0;
+    }
+    final pages = _perPage == 0 || list.isEmpty ? 1 : ((list.length + _perPage - 1) ~/ _perPage);
+    if (_page >= pages) _page = pages - 1;
+    final pageStart = _perPage == 0 ? 0 : _page * _perPage;
+    final pageEnd = _perPage == 0 ? list.length : (pageStart + _perPage).clamp(0, list.length);
+    final pageItems = list.sublist(pageStart.clamp(0, list.length), pageEnd);
+    void goPage(int n) {
+      setState(() => _page = n.clamp(0, pages - 1));
+      if (_scroll.hasClients) _scroll.animateTo(0, duration: const Duration(milliseconds: 260), curve: Curves.easeOutCubic);
+    }
+
     final categoryOptions = <MapEntry<String, String>>[
       const MapEntry('all', 'All categories'),
       for (final c in kCategories)
@@ -421,28 +427,22 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       },
       child: Scaffold(
         backgroundColor: p.bg,
-        body: CustomScrollView(slivers: [
+        body: CustomScrollView(controller: _scroll, slivers: [
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 header,
                 Row(children: [
-                  Expanded(flex: 3, child: SearchField(controller: _search, hint: 'Search library…', onChanged: (v) => setState(() => _query = v))),
-                  const SizedBox(width: 10),
-                  Expanded(flex: 2, child: PfSelect<String>(value: _category, options: categoryOptions, onChanged: (v) => setState(() => _category = v))),
-                ]),
-                const SizedBox(height: 10),
-                Row(children: [
-                  Expanded(
-                    child: PfSelect<String>(
-                      value: _sort,
-                      options: const [MapEntry('updated', 'Recently updated'), MapEntry('created', 'Newest'), MapEntry('title', 'Title'), MapEntry('used', 'Most used')],
-                      onChanged: (v) => setState(() => _sort = v),
-                    ),
+                  Expanded(child: SearchField(controller: _search, hint: 'Search library…', onChanged: (v) => setState(() => _query = v))),
+                  const SizedBox(width: 8),
+                  Badge(
+                    isLabelVisible: activeFilterCount > 0,
+                    label: Text('$activeFilterCount'),
+                    backgroundColor: p.amber,
+                    textColor: Colors.black,
+                    child: PfIconBtn(icon: Icons.tune, tooltip: 'Filters & sort', onPressed: () => _filterSheet(tags)),
                   ),
-                  const SizedBox(width: 10),
-                  PfIconBtn(icon: Icons.tune, tooltip: 'More filters', onPressed: () => _filterSheet(tags)),
                   const SizedBox(width: 8),
                   PopupMenuButton<String>(
                     tooltip: 'More',
@@ -459,26 +459,67 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                     child: Container(
                       width: 40,
                       height: 40,
-                      decoration: BoxDecoration(color: p.surface3, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.border)),
+                      decoration: BoxDecoration(color: p.surface3, borderRadius: BorderRadius.circular(10), border: Border.all(color: p.border)),
                       child: Icon(Icons.more_horiz, size: 19, color: p.textSecondary),
                     ),
                   ),
                 ]),
-                const SizedBox(height: 12),
-                Wrap(spacing: 8, runSpacing: 8, children: [
-                  toggle('★ Favorites', _favOnly, () => setState(() => _favOnly = !_favOnly)),
-                  toggle('Archived', _showArchived, () => setState(() => _showArchived = !_showArchived)),
-                  toggle('Diff pasted text…', false, () => showExternalDiff(context, ref)),
-                ]),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 38,
+                  child: ListView(scrollDirection: Axis.horizontal, children: [
+                    PopupMenuButton<String>(
+                      tooltip: 'Category',
+                      onSelected: (v) => setState(() => _category = v),
+                      itemBuilder: (_) => [for (final o in categoryOptions) PopupMenuItem(value: o.key, child: Text(o.value))],
+                      child: _RailChip(label: _category == 'all' ? 'All categories' : categoryById(_category).label, icon: Icons.category_outlined, on: _category != 'all', trailing: Icons.arrow_drop_down),
+                    ),
+                    PopupMenuButton<String>(
+                      tooltip: 'Sort',
+                      onSelected: (v) => setState(() => _sort = v),
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'updated', child: Text('Recently updated')),
+                        PopupMenuItem(value: 'created', child: Text('Newest')),
+                        PopupMenuItem(value: 'title', child: Text('Title')),
+                        PopupMenuItem(value: 'used', child: Text('Most used')),
+                      ],
+                      child: _RailChip(label: const {'updated': 'Recently updated', 'created': 'Newest', 'title': 'Title', 'used': 'Most used'}[_sort] ?? 'Sort', icon: Icons.swap_vert, on: false, trailing: Icons.arrow_drop_down),
+                    ),
+                    _RailChip(label: 'Favorites', icon: Icons.star_border, on: _favOnly, onTap: () => setState(() => _favOnly = !_favOnly)),
+                    _RailChip(label: 'Archived', icon: Icons.archive_outlined, on: _showArchived, onTap: () => setState(() => _showArchived = !_showArchived)),
+                    _RailChip(label: 'Diff pasted text', icon: Icons.difference_outlined, on: false, onTap: () => showExternalDiff(context, ref)),
+                  ]),
+                ),
+                if (libGroups.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 36,
+                    child: ListView(scrollDirection: Axis.horizontal, children: [
+                      for (final g in libGroups)
+                        _RailChip(label: '${g.name}  ${g.memberIds.length}', icon: Icons.circle, iconSize: 9, on: _groupId == g.id, color: pfColor(g.color), onTap: () => setState(() => _groupId = _groupId == g.id ? null : g.id)),
+                      TextButton(onPressed: _groupsManager, child: const Text('Manage groups…', style: TextStyle(fontWeight: FontWeight.w600))),
+                    ]),
+                  ),
+                ] else
+                  Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: _groupsManager, child: const Text('Create a group…', style: TextStyle(fontWeight: FontWeight.w600)))),
                 if (tags.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Wrap(spacing: 6, runSpacing: 6, children: [for (final t in tags.take(30)) tagChip(t)]),
+                  const SizedBox(height: 4),
+                  SizedBox(height: 32, child: ListView(scrollDirection: Axis.horizontal, children: [for (final t in tags) Padding(padding: const EdgeInsets.only(right: 6), child: tagChip(t))])),
                 ],
                 const SizedBox(height: 12),
-                Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                  for (final g in libGroups)
-                    toggle('● ${g.name}  ${g.memberIds.length}', _groupId == g.id, () => setState(() => _groupId = _groupId == g.id ? null : g.id), color: pfColor(g.color)),
-                  TextButton(onPressed: _groupsManager, child: const Text('Manage groups…', style: TextStyle(fontWeight: FontWeight.w600))),
+                Row(children: [
+                  Expanded(child: Text(list.isEmpty ? '' : 'Showing ${pageStart + 1}–$pageEnd of ${list.length}', style: TextStyle(fontSize: 12.5, color: p.textTertiary, fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback))),
+                  SizedBox(
+                    width: 132,
+                    child: PfSelect<int>(
+                      value: _perPage,
+                      options: const [MapEntry(25, '25 per page'), MapEntry(50, '50 per page'), MapEntry(100, '100 per page'), MapEntry(0, 'Show all')],
+                      onChanged: (v) => setState(() {
+                        _perPage = v;
+                        _page = 0;
+                      }),
+                    ),
+                  ),
                 ]),
                 const SizedBox(height: 8),
               ]),
@@ -512,10 +553,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
               sliver: SliverList.separated(
-                itemCount: list.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemCount: pageItems.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
                 itemBuilder: (c, i) {
-                  final x = list[i];
+                  final x = pageItems[i];
                   return PromptCard(
                     prompt: x,
                     selected: _selected.contains(x.id),
@@ -526,12 +567,71 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                       _toggleSelect(x.id);
                     },
                     onMenu: () => _cardMenu(x),
+                    actions: PromptCardActions(
+                      profileId: d.settings.scoringProfile,
+                      onCopy: () async {
+                        await copyToClipboard(context, x.body, message: 'Copied “${x.displayTitle}”');
+                        await _vault.incrementUse(x.id);
+                      },
+                      onFavorite: () => _vault.toggleFavorite(x.id),
+                      onBestOf: () => _vault.toggleBestOf(x.id),
+                      onPin: () => _vault.togglePinned(x.id),
+                      onDuplicate: () async {
+                        await _vault.duplicatePrompt(x.id);
+                        if (mounted) toast(context, 'Duplicated');
+                      },
+                      onArchive: () => _vault.setArchived(x.id, !x.archived),
+                    ),
                   );
                 },
+              ),
+            ),
+          if (list.isNotEmpty && pages > 1)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  OutlinedButton.icon(icon: const Icon(Icons.chevron_left), label: const Text('Prev'), onPressed: _page > 0 ? () => goPage(_page - 1) : null),
+                  Padding(padding: const EdgeInsets.symmetric(horizontal: 14), child: Text('Page ${_page + 1} of $pages', style: TextStyle(color: p.textSecondary, fontWeight: FontWeight.w600))),
+                  OutlinedButton.icon(icon: const Icon(Icons.chevron_right), label: const Text('Next'), onPressed: _page < pages - 1 ? () => goPage(_page + 1) : null),
+                ]),
               ),
             ),
         ]),
       ),
     );
+  }
+}
+
+/// A compact pill for the library's scrolling filter rail.
+class _RailChip extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final double iconSize;
+  final bool on;
+  final Color? color;
+  final VoidCallback? onTap;
+  final IconData? trailing;
+  const _RailChip({required this.label, this.icon, this.iconSize = 15, required this.on, this.color, this.onTap, this.trailing});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pf;
+    final c = color ?? p.amber;
+    final chip = Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: EdgeInsets.only(left: 12, right: trailing != null ? 6 : 12),
+      decoration: BoxDecoration(
+        color: on ? c.withValues(alpha: 0.16) : p.surface,
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(color: on ? c.withValues(alpha: 0.75) : p.border),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (icon != null) ...[Icon(icon, size: iconSize, color: on ? c : p.textTertiary), const SizedBox(width: 6)],
+        Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: on ? c : p.textSecondary)),
+        if (trailing != null) Icon(trailing, size: 20, color: p.textTertiary),
+      ]),
+    );
+    return onTap == null ? chip : GestureDetector(onTap: onTap, child: chip);
   }
 }
