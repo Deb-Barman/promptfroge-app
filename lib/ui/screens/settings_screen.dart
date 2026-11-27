@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/constants.dart';
+import '../../domain/engines/token_estimator.dart';
 import '../../domain/models.dart';
 import '../../state/device_settings.dart';
 import '../../state/vault_notifier.dart';
@@ -11,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../onboarding.dart';
 import '../widgets/pf_chrome.dart';
 import '../widgets/common.dart';
+import '../widgets/model_manager.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -31,9 +33,21 @@ class SettingsScreen extends ConsumerWidget {
           child: DropdownButtonFormField<T>(value: value, isExpanded: true, decoration: InputDecoration(labelText: label), items: items, onChanged: onChanged),
         );
 
-    final allModels = [
-      for (final m in kModels) DropdownMenuItem(value: m.id, child: Text(m.label)),
-      for (final m in s.customModels) DropdownMenuItem(value: m.id, child: Text('${m.label} (custom)')),
+    final customIds = {for (final m in s.customModels) m.id};
+    final specs = [
+      for (final m in TokenEstimator.allModels(s.customModels))
+        if (!s.hideBuiltinModels || customIds.contains(m.id) || m.id == s.selectedModel) m,
+    ];
+    final byGroup = <String, List<ModelSpec>>{};
+    for (final m in specs) {
+      byGroup.putIfAbsent(m.group, () => []).add(m);
+    }
+    final groupNames = byGroup.keys.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final allModels = <DropdownMenuItem<String>>[
+      for (final g in groupNames) ...[
+        if (groupNames.length > 1) DropdownMenuItem<String>(enabled: false, value: '__group_$g', child: Text(g.toUpperCase(), style: TextStyle(fontSize: 11, letterSpacing: 1, fontWeight: FontWeight.w800, color: p.textTertiary))),
+        for (final m in byGroup[g]!) DropdownMenuItem<String>(value: m.id, child: Text(m.label, overflow: TextOverflow.ellipsis)),
+      ],
     ];
     final selectedModel = allModels.any((e) => e.value == s.selectedModel) ? s.selectedModel : 'generic';
 
@@ -160,41 +174,7 @@ class SettingsScreen extends ConsumerWidget {
           onChanged: (v) => save(s.clone()..outputFormatHint = v ?? 'none'),
         ),
         ]),
-        _SettingsGroup(title: 'Custom models', children: [
-        Text('Add a model so token and cost estimates use its context window and price. Token counts for custom models are characters-per-token estimates.', style: TextStyle(color: p.textSecondary, fontSize: 12.5)),
-        const SizedBox(height: 8),
-        for (final m in s.customModels)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(m.label),
-            subtitle: Text('${m.vendor} · ${m.contextWindow} ctx · \$${m.priceIn}/\$${m.priceOut} per 1M · ${m.charsPerToken} chars/token'),
-            onTap: () => _editModel(context, ref, m),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline),
-              onPressed: () async {
-                final next = s.clone()..customModels.removeWhere((x) => x.id == m.id);
-                if (next.selectedModel == m.id) next.selectedModel = 'generic';
-                await save(next);
-              },
-            ),
-          ),
-        if (s.customModels.length >= 2)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              icon: Icon(Icons.delete_sweep_outlined, color: p.red),
-              label: Text('Remove all ${s.customModels.length} custom models', style: TextStyle(color: p.red)),
-              onPressed: () async {
-                final ok = await confirmDialog(context, title: 'Remove all custom models?', message: 'Prompts keep working; token estimates fall back to the generic model if one of these was selected.', confirmLabel: 'Remove all', destructive: true);
-                if (!ok) return;
-                final next = s.clone()..customModels.clear();
-                if (!kModels.any((m) => m.id == next.selectedModel)) next.selectedModel = 'generic';
-                await save(next);
-              },
-            ),
-          ),
-        Align(alignment: Alignment.centerLeft, child: TextButton.icon(icon: const Icon(Icons.add), label: const Text('Add model'), onPressed: () => _editModel(context, ref, null))),
-        ]),
+        const _SettingsGroup(title: 'Models & tokens', children: [ModelsSettingsCard()]),
         _SettingsGroup(title: 'Data', children: [
         ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.import_export), title: const Text('Import, export & backup'), subtitle: const Text('JSON backups, single files, restore'), onTap: () => context.push('/data')),
         ListTile(
@@ -263,59 +243,6 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ]),
     );
-  }
-
-  Future<void> _editModel(BuildContext context, WidgetRef ref, CustomModel? existing) async {
-    final label = TextEditingController(text: existing?.label ?? '');
-    final vendor = TextEditingController(text: existing?.vendor ?? 'Custom');
-    final cpt = TextEditingController(text: '${existing?.charsPerToken ?? 4.0}');
-    final ctx = TextEditingController(text: '${existing?.contextWindow ?? 32000}');
-    final pin = TextEditingController(text: '${existing?.priceIn ?? 0}');
-    final pout = TextEditingController(text: '${existing?.priceOut ?? 0}');
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Text(existing == null ? 'Add model' : 'Edit model'),
-        content: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: label, decoration: const InputDecoration(labelText: 'Name')),
-            TextField(controller: vendor, decoration: const InputDecoration(labelText: 'Vendor')),
-            TextField(controller: cpt, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Characters per token')),
-            TextField(controller: ctx, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Context window (tokens)')),
-            TextField(controller: pin, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Input price per 1M tokens (USD)')),
-            TextField(controller: pout, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Output price per 1M tokens (USD)')),
-          ]),
-        ),
-        actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Save'))],
-      ),
-    );
-    final vals = (label.text.trim(), vendor.text.trim(), double.tryParse(cpt.text.trim()), int.tryParse(ctx.text.trim()), double.tryParse(pin.text.trim()), double.tryParse(pout.text.trim()));
-    for (final c in [label, vendor, cpt, ctx, pin, pout]) {
-      c.dispose();
-    }
-    if (ok != true) return;
-    if (vals.$1.isEmpty || vals.$3 == null || vals.$3! <= 0 || vals.$4 == null || vals.$4! <= 0) {
-      if (context.mounted) toast(context, 'Enter a name, a positive chars-per-token and a context window.');
-      return;
-    }
-    final vn = ref.read(vaultProvider.notifier);
-    final s = ref.read(vaultProvider).data.settings.clone();
-    final m = CustomModel(
-      id: existing?.id,
-      label: vals.$1,
-      vendor: vals.$2.isEmpty ? 'Custom' : vals.$2,
-      charsPerToken: vals.$3!,
-      contextWindow: vals.$4!,
-      priceIn: vals.$5 ?? 0,
-      priceOut: vals.$6 ?? 0,
-    );
-    final i = s.customModels.indexWhere((x) => x.id == m.id);
-    if (i >= 0) {
-      s.customModels[i] = m;
-    } else {
-      s.customModels.add(m);
-    }
-    await vn.updateSettings(s);
   }
 }
 

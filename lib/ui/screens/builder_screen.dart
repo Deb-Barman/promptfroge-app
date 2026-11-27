@@ -35,7 +35,6 @@ class BuilderScreen extends ConsumerStatefulWidget {
 class _BuilderScreenState extends ConsumerState<BuilderScreen> {
   final List<PromptBlock> _blocks = [];
   final Map<String, TextEditingController> _ctrls = {};
-  bool _builtinOpen = false;
 
   @override
   void initState() {
@@ -85,69 +84,6 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
     });
   }
 
-  List<_StructureRow> _structures(VaultData d) {
-    final builtins = [
-      for (final s in kBuilderPresets)
-        _StructureRow(s.id, s.name, true, [for (final b in s.blocks) PromptBlock(type: b.type, label: b.label, color: b.color)]),
-    ];
-    final custom = d.builderStructures.values.toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    return [...builtins, ...custom.map((s) => _StructureRow(s.id, s.name, false, s.blocks))];
-  }
-
-  // ignore: unused_element
-  Future<void> _structuresSheet() async {
-    await showPfSheet<void>(
-      context,
-      title: 'Structures',
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) => Consumer(builder: (c, r, _) {
-        final rows = _structures(r.watch(vaultProvider).data);
-        final custom = rows.where((x) => !x.builtin).toList();
-        final builtin = rows.where((x) => x.builtin).toList();
-        Widget tile(_StructureRow s) => ListTile(
-              title: Text(s.name),
-              subtitle: Text(s.blocks.map((b) => TemplateEngine.blockLabel(b)).join(' → '), maxLines: 2, overflow: TextOverflow.ellipsis),
-              trailing: s.builtin
-                  ? const StatusBadge('Built-in', Color(0xFF7A8290))
-                  : IconButton(
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: () async {
-                        final ok = await confirmDialog(context, title: 'Delete this structure?', message: 'This can’t be undone.', confirmLabel: 'Delete', destructive: true);
-                        if (ok) await ref.read(vaultProvider.notifier).deleteStructure(s.id);
-                      },
-                    ),
-              onTap: () async {
-                Navigator.pop(ctx);
-                if (_hasText) {
-                  final ok = await confirmDialog(context,
-                      title: 'Replace current canvas?', message: 'Applying "${s.name}" replaces the blocks on the canvas. Text you wrote in them will be lost.', confirmLabel: 'Replace', destructive: true);
-                  if (!ok) return;
-                }
-                _applyDefs(s.blocks);
-                if (mounted) toast(context, 'Applied "${s.name}"');
-              },
-            );
-        return ListView(shrinkWrap: true, children: [
-          if (custom.isNotEmpty) ...[const SectionTitle('Your structures'), ...custom.map(tile)],
-          ListTile(
-            title: Text('Built-in (${builtin.length})', style: const TextStyle(fontWeight: FontWeight.w700)),
-            trailing: Icon(_builtinOpen || custom.isEmpty ? Icons.expand_less : Icons.expand_more),
-            onTap: () => setSheet(() => _builtinOpen = !_builtinOpen),
-          ),
-          if (_builtinOpen || custom.isEmpty) ...builtin.map(tile),
-          const Divider(),
-          ListTile(leading: const Icon(Icons.add), title: const Text('New structure…'), onTap: () {
-            Navigator.pop(ctx);
-            _newStructure(fromCanvas: false);
-          }),
-          ListTile(leading: const Icon(Icons.bookmark_add_outlined), title: const Text('Save current canvas as structure…'), onTap: () {
-            Navigator.pop(ctx);
-            _newStructure(fromCanvas: true);
-          }),
-        ]);
-      })),
-    );
-  }
-
   Future<void> _applyStructure(_StructureRow s) async {
     if (_hasText) {
       final ok = await confirmDialog(context, title: 'Replace current canvas?', message: 'Applying "${s.name}" replaces the blocks on the canvas. Text you wrote in them will be lost.', confirmLabel: 'Replace', destructive: true);
@@ -165,6 +101,44 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
       title: 'New structure',
       full: true,
       builder: (ctx) => _NewStructureSheet(prefill: prefill),
+    );
+  }
+
+  Future<void> _editStructure(BuilderStructure st) async {
+    await showPfSheet<void>(
+      context,
+      title: 'Edit structure',
+      full: true,
+      builder: (ctx) => _NewStructureSheet(prefill: st.blocks, existing: st),
+    );
+  }
+
+  Future<void> _duplicateStructure(_StructureRow r) async {
+    final copy = BuilderStructure(name: r.builtin ? r.name : '${r.name} (copy)', blocks: [for (final b in r.blocks) PromptBlock(type: b.type, label: b.label, color: b.color)]);
+    await ref.read(vaultProvider.notifier).saveStructure(copy);
+    if (mounted) toast(context, 'Saved “${copy.name}” to your structures');
+  }
+
+  Future<void> _manageStructures() async {
+    await showPfSheet<void>(
+      context,
+      title: 'Manage structures',
+      full: true,
+      builder: (ctx) => _StructuresManager(
+        onApply: (r) {
+          Navigator.pop(ctx);
+          _applyStructure(r);
+        },
+        onEdit: (st) {
+          Navigator.pop(ctx);
+          _editStructure(st);
+        },
+        onDuplicate: _duplicateStructure,
+        onNew: () {
+          Navigator.pop(ctx);
+          _newStructure(fromCanvas: false);
+        },
+      ),
     );
   }
 
@@ -261,7 +235,7 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
   @override
   Widget build(BuildContext context) {
     final p = context.pf;
-    final rows = _structures(ref.watch(vaultProvider).data);
+    final rows = _buildStructureRows(ref.watch(vaultProvider).data);
 
     Widget label(String t, {Widget? trailing}) => Padding(
           padding: const EdgeInsets.only(top: 18, bottom: 8),
@@ -269,54 +243,6 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
             Expanded(child: Text(t, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: p.textSecondary))),
             if (trailing != null) trailing,
           ]),
-        );
-
-    Widget structureRow(_StructureRow r) => Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Material(
-            color: p.surface,
-            borderRadius: BorderRadius.circular(8),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => _applyStructure(r),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: p.borderSubtle)),
-                child: Row(children: [
-                  Expanded(child: Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600))),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(color: r.builtin ? p.surface3 : p.green.withOpacity(0.15), borderRadius: BorderRadius.circular(999)),
-                    child: Text(r.builtin ? 'BUILT-IN' : 'YOURS', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: r.builtin ? p.textTertiary : p.green)),
-                  ),
-                ]),
-              ),
-            ),
-          ),
-        );
-
-    Widget blockTypeRow(BlockType bt) => Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Material(
-            color: p.surface,
-            borderRadius: BorderRadius.circular(8),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => _addBlock(PromptBlock(type: bt.id)),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border(left: BorderSide(color: pfColor(bt.color), width: 3), top: BorderSide(color: p.borderSubtle), right: BorderSide(color: p.borderSubtle), bottom: BorderSide(color: p.borderSubtle)),
-                ),
-                child: Row(children: [
-                  Expanded(child: Text(bt.label, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600))),
-                  Icon(Icons.add, size: 17, color: p.textTertiary),
-                ]),
-              ),
-            ),
-          ),
         );
 
     final header = Padding(
@@ -330,12 +256,46 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
             PfBtn(label: 'Send to Editor', icon: Icons.north_east, primary: true, onPressed: _compose),
           ],
         ),
-        label('Structures', trailing: IconButton(visualDensity: VisualDensity.compact, tooltip: 'New structure', icon: const Icon(Icons.add), onPressed: () => _newStructure(fromCanvas: false))),
-        for (final r in rows) structureRow(r),
-        OutlinedButton.icon(icon: const Icon(Icons.add, size: 18), label: const Text('New structure…'), onPressed: () => _newStructure(fromCanvas: false)),
-        label('Block types'),
-        for (final bt in kBlockTypes) blockTypeRow(bt),
-        OutlinedButton.icon(icon: const Icon(Icons.add, size: 18), label: const Text('Add your own section…'), onPressed: _addCustom),
+        label('Structures', trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            margin: const EdgeInsets.only(right: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+            decoration: BoxDecoration(color: p.surface3, borderRadius: BorderRadius.circular(10)),
+            child: Text('${rows.length}', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: p.textTertiary)),
+          ),
+          TextButton.icon(
+            style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+            icon: const Icon(Icons.tune, size: 17),
+            label: const Text('Manage'),
+            onPressed: _manageStructures,
+          ),
+          IconButton(visualDensity: VisualDensity.compact, tooltip: 'New structure', icon: const Icon(Icons.add), onPressed: () => _newStructure(fromCanvas: false)),
+        ])),
+        SizedBox(
+          height: 98,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            clipBehavior: Clip.none,
+            children: [
+              for (final r in (() {
+                // yours first (newest first), then the built-ins; the carousel is capped, Manage shows everything
+                final mine = rows.where((x) => !x.builtin).toList();
+                final built = rows.where((x) => x.builtin).toList();
+                return [...mine, ...built].take(14);
+              })())
+                _StructureCard(row: r, onTap: () => _applyStructure(r), onLong: _manageStructures),
+              if (rows.length > 14) _MoreCard(count: rows.length - 14, onTap: _manageStructures),
+            ],
+          ),
+        ),
+        label('Block palette', trailing: Text('tap to add', style: TextStyle(fontSize: 12, color: p.textTertiary))),
+        SizedBox(
+          height: 40,
+          child: ListView(scrollDirection: Axis.horizontal, children: [
+            for (final bt in kBlockTypes) _PalettePill(label: bt.label, color: pfColor(bt.color), onTap: () => _addBlock(PromptBlock(type: bt.id))),
+            _PalettePill(label: 'Your own', color: p.textSecondary, icon: Icons.add, onTap: _addCustom),
+          ]),
+        ),
         label('Canvas'),
         if (_blocks.isEmpty)
           Container(
@@ -452,18 +412,293 @@ class _StructureRow {
   _StructureRow(this.id, this.name, this.builtin, this.blocks);
 }
 
-// ------------------------------------------------------------ new structure
+List<_StructureRow> _buildStructureRows(VaultData d) {
+  final builtins = [
+    for (final s in kBuilderPresets) _StructureRow(s.id, s.name, true, [for (final b in s.blocks) PromptBlock(type: b.type, label: b.label, color: b.color)]),
+  ];
+  final custom = d.builderStructures.values.toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  return [...builtins, ...custom.map((s) => _StructureRow(s.id, s.name, false, s.blocks))];
+}
+
+// ------------------------------------------------------------- small widgets
+
+class _StructureCard extends StatelessWidget {
+  final _StructureRow row;
+  final VoidCallback onTap;
+  final VoidCallback onLong;
+  const _StructureCard({required this.row, required this.onTap, required this.onLong});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pf;
+    final colors = [for (final b in row.blocks.take(8)) pfColor(TemplateEngine.blockColor(b))];
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: SizedBox(
+        width: 176,
+        child: Material(
+          color: p.surface,
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onTap,
+            onLongPress: onLong,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: row.builtin ? p.borderSubtle : p.green.withValues(alpha: 0.45))),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: Text(row.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, height: 1.25))),
+                Row(children: [
+                  for (final c in colors) Container(width: 9, height: 9, margin: const EdgeInsets.only(right: 3), decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+                  const Spacer(),
+                  Text('${row.blocks.length}', style: TextStyle(fontSize: 11.5, color: p.textTertiary, fontWeight: FontWeight.w700)),
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(color: row.builtin ? p.surface3 : p.green.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(999)),
+                    child: Text(row.builtin ? 'BUILT-IN' : 'YOURS', style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w800, letterSpacing: 0.5, color: row.builtin ? p.textTertiary : p.green)),
+                  ),
+                ]),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MoreCard extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+  const _MoreCard({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pf;
+    return SizedBox(
+      width: 120,
+      child: Material(
+        color: p.amber.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Container(
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: p.amber.withValues(alpha: 0.5))),
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text('+$count', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: p.amber)),
+              Text('View all', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: p.amber)),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PalettePill extends StatelessWidget {
+  final String label;
+  final Color color;
+  final IconData? icon;
+  final VoidCallback onTap;
+  const _PalettePill({required this.label, required this.color, required this.onTap, this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13),
+          decoration: BoxDecoration(color: color.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(20), border: Border.all(color: color.withValues(alpha: 0.55))),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon ?? Icons.add, size: 15, color: color),
+            const SizedBox(width: 5),
+            Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: color)),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------------------------ manager
+
+/// All structures in one searchable list: apply, edit, duplicate or delete them, or select several to delete at
+/// once. Built for dozens of structures: it scrolls inside the sheet and takes no room on the builder page.
+class _StructuresManager extends ConsumerStatefulWidget {
+  final ValueChanged<_StructureRow> onApply;
+  final ValueChanged<BuilderStructure> onEdit;
+  final ValueChanged<_StructureRow> onDuplicate;
+  final VoidCallback onNew;
+  const _StructuresManager({required this.onApply, required this.onEdit, required this.onDuplicate, required this.onNew});
+
+  @override
+  ConsumerState<_StructuresManager> createState() => _StructuresManagerState();
+}
+
+class _StructuresManagerState extends ConsumerState<_StructuresManager> {
+  final _q = TextEditingController();
+  String _filter = 'all'; // all | yours | builtin
+  bool _selecting = false;
+  final Set<String> _picked = {};
+
+  @override
+  void dispose() {
+    _q.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.pf;
+    final d = ref.watch(vaultProvider).data;
+    final all = _buildStructureRows(d);
+    final mine = all.where((r) => !r.builtin).length;
+    final q = _q.text.trim().toLowerCase();
+    final shown = [
+      for (final r in all)
+        if ((_filter == 'all' || (_filter == 'yours' && !r.builtin) || (_filter == 'builtin' && r.builtin)) && (q.isEmpty || r.name.toLowerCase().contains(q) || r.blocks.any((b) => TemplateEngine.blockLabel(b).toLowerCase().contains(q)))) r,
+    ]..sort((a, b) => a.builtin == b.builtin ? 0 : (a.builtin ? 1 : -1));
+
+    Future<void> delete(Set<String> ids) async {
+      final ok = await confirmDialog(context, title: 'Delete ${ids.length} structure${ids.length == 1 ? '' : 's'}?', message: 'This can’t be undone.', confirmLabel: 'Delete', destructive: true);
+      if (!ok) return;
+      for (final id in ids) {
+        await ref.read(vaultProvider.notifier).deleteStructure(id);
+      }
+      if (mounted) setState(() => _picked.removeAll(ids));
+    }
+
+    Widget filterChip(String id, String label, int n) {
+      final on = _filter == id;
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: GestureDetector(
+          onTap: () => setState(() => _filter = id),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+            decoration: BoxDecoration(color: on ? p.amber.withValues(alpha: 0.16) : p.surface2, borderRadius: BorderRadius.circular(18), border: Border.all(color: on ? p.amber : p.border)),
+            child: Text('$label · $n', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: on ? p.amber : p.textSecondary)),
+          ),
+        ),
+      );
+    }
+
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Row(children: [
+          Expanded(child: SearchField(controller: _q, hint: 'Search ${all.length} structures…', onChanged: (_) => setState(() {}))),
+          const SizedBox(width: 8),
+          FilledButton.icon(style: FilledButton.styleFrom(minimumSize: const Size(0, 42), padding: const EdgeInsets.symmetric(horizontal: 14)), icon: const Icon(Icons.add, size: 18), label: const Text('New'), onPressed: widget.onNew),
+        ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Row(children: [
+          filterChip('all', 'All', all.length),
+          filterChip('yours', 'Yours', mine),
+          filterChip('builtin', 'Built-in', all.length - mine),
+          const Spacer(),
+          if (mine > 0)
+            TextButton(
+              onPressed: () => setState(() {
+                _selecting = !_selecting;
+                _picked.clear();
+              }),
+              child: Text(_selecting ? 'Done' : 'Select'),
+            ),
+        ]),
+      ),
+      if (_selecting)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Row(children: [
+            TextButton(onPressed: () => setState(() => _picked.addAll(shown.where((r) => !r.builtin).map((r) => r.id))), child: const Text('Select all yours')),
+            const Spacer(),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: p.red, foregroundColor: Colors.white, minimumSize: const Size(0, 38)),
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: Text('Delete ${_picked.length}'),
+              onPressed: _picked.isEmpty ? null : () => delete({..._picked}),
+            ),
+          ]),
+        ),
+      Flexible(
+        child: shown.isEmpty
+            ? const Padding(padding: EdgeInsets.all(28), child: Text('No structures match.'))
+            : ListView.separated(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                itemCount: shown.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (c, i) {
+                  final r = shown[i];
+                  final on = _picked.contains(r.id);
+                  final st = r.builtin ? null : d.builderStructures[r.id];
+                  return Material(
+                    color: p.surface,
+                    borderRadius: BorderRadius.circular(14),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: _selecting ? (r.builtin ? null : () => setState(() => on ? _picked.remove(r.id) : _picked.add(r.id))) : () => widget.onApply(r),
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 8, 10),
+                        decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: on ? p.amber : p.borderSubtle)),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Row(children: [
+                            if (_selecting && !r.builtin) Padding(padding: const EdgeInsets.only(right: 10), child: Icon(on ? Icons.check_circle : Icons.radio_button_unchecked, size: 22, color: on ? p.amber : p.textTertiary)),
+                            Expanded(child: Text(r.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700))),
+                            const SizedBox(width: 8),
+                            StatusBadge(r.builtin ? 'Built-in' : 'Yours', r.builtin ? p.textTertiary : p.green),
+                          ]),
+                          const SizedBox(height: 8),
+                          Wrap(spacing: 5, runSpacing: 5, children: [
+                            for (final b in r.blocks.take(7))
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(color: pfColor(TemplateEngine.blockColor(b)).withValues(alpha: 0.14), borderRadius: BorderRadius.circular(10)),
+                                child: Text(TemplateEngine.blockLabel(b), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: pfColor(TemplateEngine.blockColor(b)))),
+                              ),
+                            if (r.blocks.length > 7) Padding(padding: const EdgeInsets.only(top: 3), child: Text('+${r.blocks.length - 7}', style: TextStyle(fontSize: 11.5, color: p.textTertiary))),
+                          ]),
+                          if (!_selecting) ...[
+                            const SizedBox(height: 4),
+                            Row(children: [
+                              TextButton.icon(style: TextButton.styleFrom(visualDensity: VisualDensity.compact), icon: const Icon(Icons.north_east, size: 16), label: const Text('Use'), onPressed: () => widget.onApply(r)),
+                              if (st != null) TextButton.icon(style: TextButton.styleFrom(visualDensity: VisualDensity.compact), icon: const Icon(Icons.edit_outlined, size: 16), label: const Text('Edit'), onPressed: () => widget.onEdit(st)),
+                              TextButton.icon(style: TextButton.styleFrom(visualDensity: VisualDensity.compact), icon: const Icon(Icons.copy_all_outlined, size: 16), label: Text(r.builtin ? 'Copy to edit' : 'Duplicate'), onPressed: () => widget.onDuplicate(r)),
+                              const Spacer(),
+                              if (!r.builtin) IconButton(visualDensity: VisualDensity.compact, tooltip: 'Delete', icon: Icon(Icons.delete_outline, size: 20, color: p.red), onPressed: () => delete({r.id})),
+                            ]),
+                          ],
+                        ]),
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
+    ]);
+  }
+}
+
+// ------------------------------------------------------------ new / edit structure
 
 class _NewStructureSheet extends ConsumerStatefulWidget {
   final List<PromptBlock> prefill;
-  const _NewStructureSheet({required this.prefill});
+  final BuilderStructure? existing;
+  const _NewStructureSheet({required this.prefill, this.existing});
 
   @override
   ConsumerState<_NewStructureSheet> createState() => _NewStructureSheetState();
 }
 
 class _NewStructureSheetState extends ConsumerState<_NewStructureSheet> {
-  final _name = TextEditingController();
+  late final _name = TextEditingController(text: widget.existing?.name ?? '');
   final _custom = TextEditingController();
   final _json = TextEditingController();
   bool _paste = false;
@@ -513,10 +748,12 @@ class _NewStructureSheetState extends ConsumerState<_NewStructureSheet> {
       final name = _name.text.trim();
       if (name.isEmpty) return toast(context, 'Give the structure a name.');
       if (_picked.isEmpty) return toast(context, 'Pick at least one block.');
-      await vault.saveStructure(BuilderStructure(name: name, blocks: _picked.map((b) => PromptBlock(type: b.type, label: b.label, color: b.color)).toList()));
+      final blocks = _picked.map((b) => PromptBlock(type: b.type, label: b.label, color: b.color)).toList();
+      final ex = widget.existing;
+      await vault.saveStructure(ex == null ? BuilderStructure(name: name, blocks: blocks) : BuilderStructure(id: ex.id, name: name, blocks: blocks, createdAt: ex.createdAt));
       if (!mounted) return;
       Navigator.pop(context);
-      toast(context, '"$name" saved — pick it from Structures anytime.');
+      toast(context, ex == null ? '“$name” saved — pick it from Structures anytime.' : '“$name” updated.');
       return;
     }
     try {
@@ -569,45 +806,76 @@ class _NewStructureSheetState extends ConsumerState<_NewStructureSheet> {
   @override
   Widget build(BuildContext context) {
     final p = context.pf;
+    final editing = widget.existing != null;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: ListView(shrinkWrap: true, children: [
-        SegmentedButton<bool>(
-          segments: const [ButtonSegment(value: false, label: Text('Fill in')), ButtonSegment(value: true, label: Text('Paste JSON'))],
-          selected: {_paste},
-          onSelectionChanged: (s) => setState(() => _paste = s.first),
-        ),
-        const SizedBox(height: 12),
+        if (!editing) ...[
+          SegmentedButton<bool>(
+            segments: const [ButtonSegment(value: false, label: Text('Fill in')), ButtonSegment(value: true, label: Text('Paste JSON'))],
+            selected: {_paste},
+            onSelectionChanged: (s) => setState(() => _paste = s.first),
+          ),
+          const SizedBox(height: 12),
+        ],
         if (!_paste) ...[
           TextField(controller: _name, maxLength: 80, decoration: const InputDecoration(labelText: 'Structure name', hintText: 'e.g. Image (Character + Background + Style)')),
-          const SectionTitle('Blocks — tap in the order you want'),
-          for (final bt in kBlockTypes)
-            CheckboxListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              value: _isPicked(bt.id),
-              secondary: CircleAvatar(radius: 5, backgroundColor: pfColor(bt.color)),
-              title: Text(bt.label),
-              onChanged: (_) => _toggleBuiltin(bt),
-            ),
-          for (final b in _picked.where((b) => b.type.startsWith('custom_')))
-            ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(radius: 5, backgroundColor: pfColor(b.color ?? 0xFF9B7FE0)),
-              title: Text(b.label ?? 'Section'),
-              trailing: IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => setState(() => _picked.remove(b))),
-            ),
+          const SectionTitle('Blocks — tap to add or remove'),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final bt in kBlockTypes)
+              GestureDetector(
+                onTap: () => _toggleBuiltin(bt),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: pfColor(bt.color).withValues(alpha: _isPicked(bt.id) ? 0.22 : 0.07),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: pfColor(bt.color).withValues(alpha: _isPicked(bt.id) ? 0.9 : 0.4)),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(_isPicked(bt.id) ? Icons.check : Icons.add, size: 15, color: pfColor(bt.color)),
+                    const SizedBox(width: 5),
+                    Text(bt.label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: pfColor(bt.color))),
+                  ]),
+                ),
+              ),
+          ]),
+          const SizedBox(height: 12),
           Row(children: [
-            Expanded(child: TextField(controller: _custom, decoration: const InputDecoration(hintText: 'Custom section name, e.g. Character'), onSubmitted: (_) => _addCustom())),
+            Expanded(child: TextField(controller: _custom, decoration: const InputDecoration(hintText: 'Custom section, e.g. Character'), onSubmitted: (_) => _addCustom())),
             const SizedBox(width: 8),
             OutlinedButton(onPressed: _addCustom, child: const Text('Add')),
           ]),
-          if (_picked.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text('Order: ${_picked.map((b) => TemplateEngine.blockLabel(b)).join(' → ')}', style: TextStyle(color: p.textSecondary, fontSize: 12.5)),
+          if (_picked.isNotEmpty) ...[
+            SectionTitle('Order — drag to rearrange (${_picked.length})'),
+            ReorderableListView(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              onReorder: (o, n) => setState(() {
+                if (n > o) n -= 1;
+                _picked.insert(n, _picked.removeAt(o));
+              }),
+              children: [
+                for (var i = 0; i < _picked.length; i++)
+                  Container(
+                    key: ValueKey('${_picked[i].id}'),
+                    margin: const EdgeInsets.only(bottom: 6),
+                    decoration: BoxDecoration(color: p.surface2, borderRadius: BorderRadius.circular(10), border: Border(left: BorderSide(color: pfColor(TemplateEngine.blockColor(_picked[i])), width: 4))),
+                    child: ListTile(
+                      dense: true,
+                      visualDensity: VisualDensity.compact,
+                      title: Text('${i + 1}.  ${TemplateEngine.blockLabel(_picked[i])}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                        IconButton(visualDensity: VisualDensity.compact, icon: const Icon(Icons.close, size: 18), onPressed: () => setState(() => _picked.removeAt(i))),
+                        ReorderableDragStartListener(index: i, child: Padding(padding: const EdgeInsets.all(6), child: Icon(Icons.drag_indicator, color: p.textTertiary))),
+                      ]),
+                    ),
+                  ),
+              ],
             ),
+          ],
         ] else ...[
           TextField(
             controller: _json,
@@ -620,7 +888,7 @@ class _NewStructureSheetState extends ConsumerState<_NewStructureSheet> {
           ),
         ],
         const SizedBox(height: 16),
-        FilledButton(onPressed: _save, child: Text(_paste ? 'Import' : 'Save structure')),
+        FilledButton(onPressed: _save, child: Text(_paste ? 'Import' : (editing ? 'Save changes' : 'Save structure'))),
       ]),
     );
   }
