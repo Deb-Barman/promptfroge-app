@@ -204,6 +204,7 @@ class AppTheme {
         TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
       }),
       popupMenuTheme: PopupMenuThemeData(
+        position: PopupMenuPosition.under,
         color: p.raised,
         surfaceTintColor: Colors.transparent,
         elevation: 10,
