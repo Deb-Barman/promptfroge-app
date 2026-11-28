@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../domain/engines/template_engine.dart';
 import '../theme/app_theme.dart';
 import 'common.dart';
+import 'pf_menu.dart';
 
 /// Asks for values of every `{{variable}}` in [body] and returns the rendered text
 /// (or null when cancelled). Bodies without variables are returned unchanged immediately.
@@ -39,11 +40,11 @@ class _FillSheetState extends State<_FillSheet> {
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: s.type == 'select' && s.options.isNotEmpty
-              ? DropdownButtonFormField<String>(
+              ? PfField<String>(
+                  label: TemplateEngine.humanizeVarName(s.name),
                   value: s.options.contains(_values[s.name]) ? _values[s.name] : null,
-                  decoration: InputDecoration(labelText: TemplateEngine.humanizeVarName(s.name)),
-                  items: [for (final o in s.options) DropdownMenuItem(value: o, child: Text(o))],
-                  onChanged: (v) => setState(() => _values[s.name] = v ?? ''),
+                  items: [for (final o in s.options) PfMenuItem<String>(o, o)],
+                  onChanged: (v) => setState(() => _values[s.name] = v),
                 )
               : TextFormField(
                   initialValue: s.defaultValue,

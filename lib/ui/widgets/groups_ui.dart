@@ -141,7 +141,8 @@ class GroupFilterBar extends ConsumerWidget {
   final String kind;
   final String? selectedId;
   final ValueChanged<String?> onChanged;
-  const GroupFilterBar({super.key, required this.kind, required this.selectedId, required this.onChanged});
+  final EdgeInsets padding;
+  const GroupFilterBar({super.key, required this.kind, required this.selectedId, required this.onChanged, this.padding = const EdgeInsets.symmetric(horizontal: 16)});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -150,7 +151,7 @@ class GroupFilterBar extends ConsumerWidget {
     final p = context.pf;
     return SizedBox(
       height: 40,
-      child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16), children: [
+      child: ListView(scrollDirection: Axis.horizontal, padding: padding, children: [
         Padding(padding: const EdgeInsets.only(right: 8), child: PfChip(label: 'All groups', icon: Icons.folder_open, selected: selectedId == null, color: p.amber, onTap: () => onChanged(null))),
         for (final g in groups)
           Padding(
