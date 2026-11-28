@@ -9,6 +9,7 @@ import '../state/vault_notifier.dart';
 import 'theme/app_theme.dart';
 import 'widgets/common.dart';
 import 'widgets/diff_view.dart';
+import 'widgets/pf_menu.dart';
 
 /// Diff text pasted from anywhere (a chat, an email, a colleague) against a saved prompt, then either save the
 /// pasted text as a new prompt or update the original (its previous text is kept as a version first).
@@ -63,11 +64,10 @@ class _ExternalDiffState extends ConsumerState<_ExternalDiff> {
     final vn = ref.read(vaultProvider.notifier);
     final pasted = _paste.text;
     return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 24), children: [
-      DropdownButtonFormField<String>(
+      PfField<String>(
+        label: 'Compare against',
         value: _id,
-        isExpanded: true,
-        decoration: const InputDecoration(labelText: 'Compare against'),
-        items: [for (final x in _sorted(d)) DropdownMenuItem(value: x.id, child: Text(x.displayTitle, overflow: TextOverflow.ellipsis))],
+        items: [for (final x in _sorted(d)) PfMenuItem<String>(x.id, x.displayTitle)],
         onChanged: (v) => setState(() => _id = v),
       ),
       const SizedBox(height: 12),
