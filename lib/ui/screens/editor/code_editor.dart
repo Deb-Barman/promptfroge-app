@@ -231,51 +231,57 @@ class _CodeEditorState extends State<CodeEditor> {
       // Captured now, not read again inside the builder below: when a suggestion is accepted or the keyboard closes,
       // the popup is cleared in the same frame the controller notifies, and the (older) builder must not see a null.
       final popupWidget = widget.popup;
-      if (popupWidget == null) return editor;
       final popupHeight = widget.popupHeight;
       final popupWidthWanted = widget.popupWidth;
       final scroll = widget.scrollController;
+      // IMPORTANT: this root must be the same widget tree whether or not a popup is showing. The editor is always the
+      // first child of the Stack and the popup is only an optional extra layer on top of it. Returning the bare editor
+      // when there is no popup and a Stack when there is one changes the root widget type, so Flutter disposes the
+      // TextField and builds a new one every time the suggestion list opens or closes - and that closes the soft
+      // keyboard in the middle of a word. (The web app avoids this the same way: its <textarea> and the popup <div> are
+      // permanent siblings and only the popup's content changes.)
       return Stack(key: _stackKey, children: [
         Positioned.fill(child: editor),
-        ListenableBuilder(
-          listenable: Listenable.merge([widget.controller, if (scroll != null) scroll]),
-          builder: (context, _) {
-            // A popup is a nicety: if anything about its placement goes wrong it must never take the editor down.
-            try {
-              final sel = widget.controller.selection;
-              final text = widget.controller.text;
-              if (!sel.isValid || !c.maxHeight.isFinite || !c.maxWidth.isFinite) return const SizedBox.shrink();
-              final lh = widget.fontSize * _lineHeightFactor;
-              final offset = sel.baseOffset.clamp(0, text.length);
-              double caretX, caretBottom;
-              final anchor = _caretAnchor(offset);
-              if (anchor != null) {
-                caretX = anchor.dx;
-                caretBottom = anchor.dy;
-              } else {
-                // Not laid out yet: estimate from the text itself.
-                final tp = TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.ltr)..layout(maxWidth: widget.wordWrap ? textW : double.infinity);
-                final caret = tp.getOffsetForCaret(TextPosition(offset: offset), Rect.zero);
-                tp.dispose();
-                final off = (scroll != null && scroll.hasClients) ? scroll.offset : 0.0;
-                caretX = gutterW + caret.dx;
-                caretBottom = widget.padding.top + caret.dy + lh - off;
+        if (popupWidget != null)
+          ListenableBuilder(
+            listenable: Listenable.merge([widget.controller, if (scroll != null) scroll]),
+            builder: (context, _) {
+              // A popup is a nicety: if anything about its placement goes wrong it must never take the editor down.
+              try {
+                final sel = widget.controller.selection;
+                final text = widget.controller.text;
+                if (!sel.isValid || !c.maxHeight.isFinite || !c.maxWidth.isFinite) return const SizedBox.shrink();
+                final lh = widget.fontSize * _lineHeightFactor;
+                final offset = sel.baseOffset.clamp(0, text.length);
+                double caretX, caretBottom;
+                final anchor = _caretAnchor(offset);
+                if (anchor != null) {
+                  caretX = anchor.dx;
+                  caretBottom = anchor.dy;
+                } else {
+                  // Not laid out yet: estimate from the text itself.
+                  final tp = TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.ltr)..layout(maxWidth: widget.wordWrap ? textW : double.infinity);
+                  final caret = tp.getOffsetForCaret(TextPosition(offset: offset), Rect.zero);
+                  tp.dispose();
+                  final off = (scroll != null && scroll.hasClients) ? scroll.offset : 0.0;
+                  caretX = gutterW + caret.dx;
+                  caretBottom = widget.padding.top + caret.dy + lh - off;
+                }
+                final popupW = (popupWidthWanted ?? (c.maxWidth - 16)).clamp(160.0, 340.0).toDouble();
+                final maxX = math.max(8.0, c.maxWidth - popupW - 8);
+                final x = (caretX - 10).clamp(8.0, maxX).toDouble();
+                final yBelow = caretBottom + 4;
+                var y = yBelow;
+                if (yBelow + popupHeight > c.maxHeight - 4) {
+                  final yAbove = caretBottom - lh - popupHeight - 4;
+                  y = yAbove >= 4 ? yAbove : math.max(4.0, c.maxHeight - popupHeight - 4);
+                }
+                return Positioned(left: x, top: y, width: popupW, child: popupWidget);
+              } catch (_) {
+                return const SizedBox.shrink();
               }
-              final popupW = (popupWidthWanted ?? (c.maxWidth - 16)).clamp(160.0, 340.0).toDouble();
-              final maxX = math.max(8.0, c.maxWidth - popupW - 8);
-              final x = (caretX - 10).clamp(8.0, maxX).toDouble();
-              final yBelow = caretBottom + 4;
-              var y = yBelow;
-              if (yBelow + popupHeight > c.maxHeight - 4) {
-                final yAbove = caretBottom - lh - popupHeight - 4;
-                y = yAbove >= 4 ? yAbove : math.max(4.0, c.maxHeight - popupHeight - 4);
-              }
-              return Positioned(left: x, top: y, width: popupW, child: popupWidget);
-            } catch (_) {
-              return const SizedBox.shrink();
-            }
-          },
-        ),
+            },
+          ),
       ]);
     });
   }
