@@ -242,19 +242,28 @@ class _PatternsScreenState extends ConsumerState<PatternsScreen> {
               header,
               Row(children: [tab('all', 'All', all.length), tab('builtin', 'Built-in', nBuiltin), tab('custom', 'My Patterns', nCustom)]),
               const SizedBox(height: 14),
-              Row(children: [
-                Expanded(flex: 3, child: SearchField(controller: _search, hint: 'Search patterns…', onChanged: (v) => setState(() => _q = v))),
-                const SizedBox(width: 10),
-                Expanded(
-                  flex: 2,
-                  child: PfSelect<String>(
-                    value: _cat,
-                    options: [const MapEntry('All', 'All types'), for (final c in cats) MapEntry(c, c)],
-                    onChanged: (v) => setState(() => _cat = v),
-                  ),
-                ),
-              ]),
-              GroupFilterBar(kind: 'patterns', selectedId: _groupId, onChanged: (id) => setState(() => _groupId = id)),
+              SearchField(controller: _search, hint: 'Search ${all.length} patterns…', onChanged: (v) => setState(() => _q = v)),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 36,
+                child: ListView(scrollDirection: Axis.horizontal, children: [
+                  for (final c in ['All', ...cats])
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: GestureDetector(
+                        onTap: () => setState(() => _cat = c),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          padding: const EdgeInsets.symmetric(horizontal: 13),
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(color: _cat == c ? p.amber.withValues(alpha: 0.16) : p.surface, borderRadius: BorderRadius.circular(18), border: Border.all(color: _cat == c ? p.amber.withValues(alpha: 0.8) : p.border)),
+                          child: Text(c == 'All' ? 'All types' : c, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: _cat == c ? p.amber : p.textSecondary)),
+                        ),
+                      ),
+                    ),
+                ]),
+              ),
+              GroupFilterBar(kind: 'patterns', selectedId: _groupId, padding: EdgeInsets.zero, onChanged: (id) => setState(() => _groupId = id)),
               const SizedBox(height: 14),
             ]),
           ),

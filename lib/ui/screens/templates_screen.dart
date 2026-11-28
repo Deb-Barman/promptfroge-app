@@ -30,6 +30,10 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
   final Set<String> _sel = {};
   bool _selectMode = false;
   int _tab = 0;
+  final ScrollController _scroll = ScrollController();
+  int _perPage = 50; // 0 = all
+  int _page = 0;
+  String _sig = '';
 
   bool get _selecting => _selectMode || _sel.isNotEmpty;
 
@@ -54,6 +58,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
 
   @override
   void dispose() {
+    _scroll.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -136,45 +141,96 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
             ],
           );
 
+    Widget selectMark(bool selected) => Padding(padding: const EdgeInsets.only(right: 10, top: 2), child: Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked, size: 20, color: selected ? p.amber : p.textTertiary));
+
     Widget templateCard(Template t) {
       final vars = TemplateEngine.extractVariables(t.body);
       final selected = _sel.contains(t.id);
+      final cat = categoryById(t.category);
       return PfCard(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.fromLTRB(14, 12, 6, 10),
         onTap: _selecting ? () => _toggleSel(t.id) : () => _use(t),
         onLongPress: () => setState(() {
           _selectMode = true;
           _toggleSel(t.id);
         }),
         borderColor: selected ? p.amber : null,
-        color: selected ? p.amber.withOpacity(0.06) : null,
+        color: selected ? p.amber.withValues(alpha: 0.06) : null,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            if (_selecting) Padding(padding: const EdgeInsets.only(right: 10, top: 1), child: Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked, size: 20, color: selected ? p.amber : p.textTertiary)),
-            Expanded(child: Text(t.displayName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5, height: 1.3))),
-            if (!_selecting) ...[
-              InkWell(onTap: () => _edit(t), child: Padding(padding: const EdgeInsets.all(6), child: Icon(Icons.edit_outlined, size: 19, color: p.textSecondary))),
-              InkWell(
-                onTap: () async {
-                  final ok = await confirmDialog(context, title: 'Delete template?', message: '"${t.displayName}" is removed from your folder.', confirmLabel: 'Delete', destructive: true);
-                  if (ok) await ref.read(vaultProvider.notifier).deleteTemplate(t.id);
-                },
-                child: Padding(padding: const EdgeInsets.all(6), child: Icon(Icons.delete_outline, size: 19, color: p.textSecondary)),
+            if (_selecting) selectMark(selected),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2, right: 6),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(t.displayName, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, height: 1.25)),
+                  const SizedBox(height: 5),
+                  Row(children: [
+                    Container(width: 7, height: 7, decoration: BoxDecoration(color: pfColor(cat.color), shape: BoxShape.circle)),
+                    const SizedBox(width: 6),
+                    Text(cat.label, style: TextStyle(fontSize: 11.5, color: p.textTertiary, fontWeight: FontWeight.w600)),
+                    if (vars.isNotEmpty) Text('  ·  ${vars.length} variable${vars.length == 1 ? '' : 's'}', style: TextStyle(fontSize: 11.5, color: p.textTertiary)),
+                  ]),
+                ]),
               ),
-            ],
+            ),
+            if (!_selecting)
+              PopupMenuButton<String>(
+                tooltip: 'More',
+                icon: Icon(Icons.more_vert, size: 20, color: p.textTertiary),
+                onSelected: (v) async {
+                  if (v == 'use') _use(t);
+                  if (v == 'edit') _edit(t);
+                  if (v == 'copy') copyToClipboard(context, t.body, message: 'Template text copied');
+                  if (v == 'dup') {
+                    final c = Template()
+                      ..name = '${t.name} (copy)'
+                      ..body = t.body
+                      ..category = t.category;
+                    await ref.read(vaultProvider.notifier).saveTemplate(c);
+                    if (mounted) toast(context, 'Duplicated');
+                  }
+                  if (v == 'delete') {
+                    final ok = await confirmDialog(context, title: 'Delete template?', message: '"${t.displayName}" is removed from your folder.', confirmLabel: 'Delete', destructive: true);
+                    if (ok) await ref.read(vaultProvider.notifier).deleteTemplate(t.id);
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'use', child: Text('Fill in & open in editor')),
+                  PopupMenuItem(value: 'edit', child: Text('Edit')),
+                  PopupMenuItem(value: 'copy', child: Text('Copy template text')),
+                  PopupMenuItem(value: 'dup', child: Text('Duplicate')),
+                  PopupMenuDivider(),
+                  PopupMenuItem(value: 'delete', child: Text('Delete')),
+                ],
+              ),
           ]),
           const SizedBox(height: 8),
-          Text(Utils.truncate(t.body.replaceAll('\n', ' '), 170), maxLines: 3, overflow: TextOverflow.ellipsis, style: mono.copyWith(color: p.textTertiary, fontSize: 13.5, height: 1.55)),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Text(Utils.truncate(t.body.replaceAll(RegExp(r'\s+'), ' '), 200), maxLines: 2, overflow: TextOverflow.ellipsis, style: mono.copyWith(color: p.textTertiary, fontSize: 12.5, height: 1.5)),
+          ),
           if (vars.isNotEmpty) ...[
             const SizedBox(height: 10),
-            Wrap(spacing: 6, runSpacing: 6, children: [for (final v in vars) tagChip('{{$v}}')]),
+            SizedBox(
+              height: 26,
+              child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.only(right: 8), children: [for (final v in vars) Padding(padding: const EdgeInsets.only(right: 6), child: tagChip('{{$v}}'))]),
+            ),
           ],
-          const SizedBox(height: 12),
-          Row(children: [
-            Text('Used ${t.useCount}x', style: mono.copyWith(fontSize: 12, color: p.textTertiary)),
-            const Spacer(),
-            Text(Utils.formatDate(t.updatedAt), style: mono.copyWith(fontSize: 12, color: p.textTertiary)),
-          ]),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Row(children: [
+              Expanded(child: Text('Used ${t.useCount}× · ${Utils.formatDate(t.updatedAt, withTime: false)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: mono.copyWith(fontSize: 11.5, color: p.textTertiary))),
+              if (!_selecting)
+                FilledButton.tonalIcon(
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 34), padding: const EdgeInsets.symmetric(horizontal: 14), visualDensity: VisualDensity.compact),
+                  icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                  label: const Text('Use'),
+                  onPressed: () => _use(t),
+                ),
+            ]),
+          ),
         ]),
       );
     }
@@ -182,41 +238,70 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
     Widget snippetCard(Snippet s) {
       final selected = _sel.contains(s.id);
       return PfCard(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
         onTap: _selecting ? () => _toggleSel(s.id) : () => _editSnippet(s),
         onLongPress: () => setState(() {
           _selectMode = true;
           _toggleSel(s.id);
         }),
         borderColor: selected ? p.amber : null,
-        color: selected ? p.amber.withOpacity(0.06) : null,
+        color: selected ? p.amber.withValues(alpha: 0.06) : null,
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          if (_selecting) Padding(padding: const EdgeInsets.only(right: 10, top: 1), child: Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked, size: 20, color: selected ? p.amber : p.textTertiary)),
+          if (_selecting) selectMark(selected),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(s.trigger, style: mono.copyWith(color: p.amber, fontWeight: FontWeight.w700, fontSize: 14.5)),
-              const SizedBox(height: 6),
-              Text(Utils.truncate(s.body.replaceAll('\n', ' '), 150), maxLines: 3, overflow: TextOverflow.ellipsis, style: mono.copyWith(color: p.textTertiary, fontSize: 13.5, height: 1.55)),
-              const SizedBox(height: 10),
-              Text('Used ${s.useCount}x', style: mono.copyWith(fontSize: 12, color: p.textTertiary)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(color: p.amber.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
+                child: Text(s.trigger, style: mono.copyWith(color: p.amber, fontWeight: FontWeight.w800, fontSize: 13.5)),
+              ),
+              const SizedBox(height: 8),
+              Text(Utils.truncate(s.body.replaceAll(RegExp(r'\s+'), ' '), 180), maxLines: 2, overflow: TextOverflow.ellipsis, style: mono.copyWith(color: p.textTertiary, fontSize: 12.5, height: 1.5)),
+              const SizedBox(height: 8),
+              Text('Used ${s.useCount}×', style: mono.copyWith(fontSize: 11.5, color: p.textTertiary)),
             ]),
           ),
           if (!_selecting)
-            InkWell(
-              onTap: () async {
-                final ok = await confirmDialog(context, title: 'Delete snippet?', message: 'Snippet ${s.trigger} is removed.', confirmLabel: 'Delete', destructive: true);
-                if (ok) await ref.read(vaultProvider.notifier).deleteSnippet(s.id);
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              icon: Icon(Icons.more_vert, size: 20, color: p.textTertiary),
+              onSelected: (v) async {
+                if (v == 'edit') _editSnippet(s);
+                if (v == 'copy') copyToClipboard(context, s.body, message: 'Snippet text copied');
+                if (v == 'delete') {
+                  final ok = await confirmDialog(context, title: 'Delete snippet?', message: 'Snippet ${s.trigger} is removed.', confirmLabel: 'Delete', destructive: true);
+                  if (ok) await ref.read(vaultProvider.notifier).deleteSnippet(s.id);
+                }
               },
-              child: Padding(padding: const EdgeInsets.all(6), child: Icon(Icons.delete_outline, size: 19, color: p.textSecondary)),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'edit', child: Text('Edit')),
+                PopupMenuItem(value: 'copy', child: Text('Copy text')),
+                PopupMenuDivider(),
+                PopupMenuItem(value: 'delete', child: Text('Delete')),
+              ],
             ),
         ]),
       );
     }
 
     final items = _tab == 0 ? templates.length : snippets.length;
+    final sig = '$_tab|$_q|$_cat|$_groupId|$_perPage';
+    if (sig != _sig) {
+      _sig = sig;
+      _page = 0;
+    }
+    final pages = _perPage == 0 || items == 0 ? 1 : ((items + _perPage - 1) ~/ _perPage);
+    if (_page >= pages) _page = pages - 1;
+    final pageStart = _perPage == 0 ? 0 : _page * _perPage;
+    final pageEnd = _perPage == 0 ? items : (pageStart + _perPage).clamp(0, items);
+    void goPage(int n) {
+      setState(() => _page = n.clamp(0, pages - 1));
+      if (_scroll.hasClients) _scroll.animateTo(0, duration: const Duration(milliseconds: 260), curve: Curves.easeOutCubic);
+    }
+
     return Scaffold(
       backgroundColor: p.bg,
-      body: CustomScrollView(slivers: [
+      body: CustomScrollView(controller: _scroll, slivers: [
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -224,21 +309,47 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
               header,
               Row(children: [seg(0, 'Templates', d.templates.length), seg(1, 'Snippets', d.snippets.length)]),
               const SizedBox(height: 14),
-              Row(children: [
-                Expanded(flex: 3, child: SearchField(controller: _search, hint: _tab == 0 ? 'Search templates…' : 'Search snippets…', onChanged: (v) => setState(() => _q = v))),
-                if (_tab == 0) ...[
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 2,
-                    child: PfSelect<String>(
-                      value: _cat,
-                      options: [const MapEntry('all', 'All categories'), for (final c in kCategories) MapEntry(c.id, c.label)],
-                      onChanged: (v) => setState(() => _cat = v),
+              SearchField(controller: _search, hint: _tab == 0 ? 'Search ${d.templates.length} templates…' : 'Search snippets…', onChanged: (v) => setState(() => _q = v)),
+              if (_tab == 0) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 36,
+                  child: ListView(scrollDirection: Axis.horizontal, children: [
+                    for (final c in [(id: 'all', label: 'All', color: p.amber), for (final c in kCategories) (id: c.id, label: c.label, color: pfColor(c.color))])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: GestureDetector(
+                          onTap: () => setState(() => _cat = c.id),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 140),
+                            padding: const EdgeInsets.symmetric(horizontal: 13),
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(color: _cat == c.id ? c.color.withValues(alpha: 0.16) : p.surface, borderRadius: BorderRadius.circular(18), border: Border.all(color: _cat == c.id ? c.color.withValues(alpha: 0.8) : p.border)),
+                            child: Text(c.label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: _cat == c.id ? c.color : p.textSecondary)),
+                          ),
+                        ),
+                      ),
+                  ]),
+                ),
+                GroupFilterBar(kind: 'templates', selectedId: _groupId, padding: EdgeInsets.zero, onChanged: (id) => setState(() => _groupId = id)),
+              ],
+              if (items > 0) ...[
+                const SizedBox(height: 10),
+                Row(children: [
+                  Expanded(child: Text('Showing ${pageStart + 1}–$pageEnd of $items', style: TextStyle(fontSize: 12.5, color: p.textTertiary, fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback))),
+                  SizedBox(
+                    width: 132,
+                    child: PfSelect<int>(
+                      value: _perPage,
+                      options: const [MapEntry(25, '25 per page'), MapEntry(50, '50 per page'), MapEntry(100, '100 per page'), MapEntry(0, 'Show all')],
+                      onChanged: (v) => setState(() {
+                        _perPage = v;
+                        _page = 0;
+                      }),
                     ),
                   ),
-                ],
-              ]),
-              if (_tab == 0) GroupFilterBar(kind: 'templates', selectedId: _groupId, onChanged: (id) => setState(() => _groupId = id)),
+                ]),
+              ],
               const SizedBox(height: 14),
             ]),
           ),
@@ -254,9 +365,20 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
             sliver: SliverList.separated(
-              itemCount: items,
+              itemCount: pageEnd - pageStart,
               separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (c, i) => _tab == 0 ? templateCard(templates[i]) : snippetCard(snippets[i]),
+              itemBuilder: (c, i) => _tab == 0 ? templateCard(templates[pageStart + i]) : snippetCard(snippets[pageStart + i]),
+            ),
+          ),
+        if (items > 0 && pages > 1)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                OutlinedButton.icon(icon: const Icon(Icons.chevron_left), label: const Text('Prev'), onPressed: _page > 0 ? () => goPage(_page - 1) : null),
+                Padding(padding: const EdgeInsets.symmetric(horizontal: 14), child: Text('Page ${_page + 1} of $pages', style: TextStyle(color: p.textSecondary, fontWeight: FontWeight.w600))),
+                OutlinedButton.icon(icon: const Icon(Icons.chevron_right), label: const Text('Next'), onPressed: _page < pages - 1 ? () => goPage(_page + 1) : null),
+              ]),
             ),
           ),
       ]),
@@ -304,11 +426,11 @@ class _TemplateFormState extends ConsumerState<_TemplateForm> {
     return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
       TextField(controller: _name, decoration: const InputDecoration(labelText: 'Name'), textCapitalization: TextCapitalization.sentences),
       const SizedBox(height: 12),
-      DropdownButtonFormField<String>(
+      PfField<String>(
+        label: 'Category',
         value: kCategories.any((c) => c.id == _cat) ? _cat : 'custom',
-        decoration: const InputDecoration(labelText: 'Category'),
-        items: [for (final c in kCategories) DropdownMenuItem(value: c.id, child: Text(c.label))],
-        onChanged: (v) => setState(() => _cat = v ?? 'custom'),
+        items: [for (final c in kCategories) PfMenuItem<String>(c.id, c.label)],
+        onChanged: (v) => setState(() => _cat = v),
       ),
       const SizedBox(height: 12),
       TextField(

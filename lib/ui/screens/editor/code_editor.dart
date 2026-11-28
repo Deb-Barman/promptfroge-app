@@ -92,6 +92,23 @@ class CodeEditor extends StatefulWidget {
 
 class _CodeEditorState extends State<CodeEditor> {
   double get _lineHeightFactor => widget.lineHeight;
+  final GlobalKey _stackKey = GlobalKey();
+
+  /// Where the caret really is, as the bottom-left corner of its line in this editor's own coordinates. It is read
+  /// from the live text field (so font, gutter, padding, scrolling and the interface zoom are all already accounted
+  /// for) and null while the field has not been laid out yet.
+  Offset? _caretAnchor(int offset) {
+    try {
+      final editable = widget.focusNode.context?.findAncestorStateOfType<EditableTextState>();
+      final render = editable?.renderEditable;
+      final stackBox = _stackKey.currentContext?.findRenderObject() as RenderBox?;
+      if (render == null || !render.hasSize || stackBox == null || !stackBox.hasSize) return null;
+      final rect = render.getLocalRectForCaret(TextPosition(offset: offset));
+      return stackBox.globalToLocal(render.localToGlobal(rect.bottomLeft));
+    } catch (_) {
+      return null;
+    }
+  }
 
   void _insertIndent() {
     final c = widget.controller;
@@ -218,7 +235,7 @@ class _CodeEditorState extends State<CodeEditor> {
       final popupHeight = widget.popupHeight;
       final popupWidthWanted = widget.popupWidth;
       final scroll = widget.scrollController;
-      return Stack(children: [
+      return Stack(key: _stackKey, children: [
         Positioned.fill(child: editor),
         ListenableBuilder(
           listenable: Listenable.merge([widget.controller, if (scroll != null) scroll]),
@@ -228,18 +245,29 @@ class _CodeEditorState extends State<CodeEditor> {
               final sel = widget.controller.selection;
               final text = widget.controller.text;
               if (!sel.isValid || !c.maxHeight.isFinite || !c.maxWidth.isFinite) return const SizedBox.shrink();
-              final tp = TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.ltr)..layout(maxWidth: widget.wordWrap ? textW : double.infinity);
-              final caret = tp.getOffsetForCaret(TextPosition(offset: sel.baseOffset.clamp(0, text.length)), Rect.zero);
               final lh = widget.fontSize * _lineHeightFactor;
-              tp.dispose();
-              final off = (scroll != null && scroll.hasClients) ? scroll.offset : 0.0;
+              final offset = sel.baseOffset.clamp(0, text.length);
+              double caretX, caretBottom;
+              final anchor = _caretAnchor(offset);
+              if (anchor != null) {
+                caretX = anchor.dx;
+                caretBottom = anchor.dy;
+              } else {
+                // Not laid out yet: estimate from the text itself.
+                final tp = TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.ltr)..layout(maxWidth: widget.wordWrap ? textW : double.infinity);
+                final caret = tp.getOffsetForCaret(TextPosition(offset: offset), Rect.zero);
+                tp.dispose();
+                final off = (scroll != null && scroll.hasClients) ? scroll.offset : 0.0;
+                caretX = gutterW + caret.dx;
+                caretBottom = widget.padding.top + caret.dy + lh - off;
+              }
               final popupW = (popupWidthWanted ?? (c.maxWidth - 16)).clamp(160.0, 340.0).toDouble();
               final maxX = math.max(8.0, c.maxWidth - popupW - 8);
-              final x = (gutterW + caret.dx - 10).clamp(8.0, maxX).toDouble();
-              final yBelow = widget.padding.top + caret.dy + lh - off + 4;
+              final x = (caretX - 10).clamp(8.0, maxX).toDouble();
+              final yBelow = caretBottom + 4;
               var y = yBelow;
               if (yBelow + popupHeight > c.maxHeight - 4) {
-                final yAbove = widget.padding.top + caret.dy - off - popupHeight - 4;
+                final yAbove = caretBottom - lh - popupHeight - 4;
                 y = yAbove >= 4 ? yAbove : math.max(4.0, c.maxHeight - popupHeight - 4);
               }
               return Positioned(left: x, top: y, width: popupW, child: popupWidget);

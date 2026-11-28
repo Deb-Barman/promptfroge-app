@@ -12,6 +12,8 @@ import 'brain_sheet.dart';
 import 'brand_logo.dart';
 import 'common.dart';
 
+export 'pf_menu.dart' show PfSelect, PfField, PfMenuItem, showPfMenu;
+
 /// Word count of the document open in the editor (shown in the status bar like the web app).
 final editorWordsProvider = StateProvider<int>((ref) => 0);
 
@@ -303,39 +305,6 @@ class PfIconBtn extends StatelessWidget {
         color: p.surface3,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: p.border)),
         child: InkWell(borderRadius: BorderRadius.circular(8), onTap: onPressed, child: SizedBox(width: 40, height: 40, child: Icon(icon, size: 19, color: p.textSecondary))),
-      ),
-    );
-  }
-}
-
-/// `.select` of the web app: a bordered box showing the current choice; tap opens a menu.
-class PfSelect<T> extends StatelessWidget {
-  final T value;
-  final List<MapEntry<T, String>> options;
-  final ValueChanged<T> onChanged;
-  final double? width;
-  const PfSelect({super.key, required this.value, required this.options, required this.onChanged, this.width});
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.pf;
-    final label = options.firstWhere((o) => o.key == value, orElse: () => options.first).value;
-    return SizedBox(
-      width: width,
-      child: PopupMenuButton<T>(
-        tooltip: '',
-        onSelected: onChanged,
-        position: PopupMenuPosition.under,
-        itemBuilder: (_) => [for (final o in options) PopupMenuItem<T>(value: o.key, child: Text(o.value, style: TextStyle(fontWeight: o.key == value ? FontWeight.w700 : FontWeight.w400, color: o.key == value ? p.amber : null)))],
-        child: Container(
-          height: 42,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: p.border)),
-          child: Row(children: [
-            Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13.5))),
-            Icon(Icons.keyboard_arrow_down, size: 18, color: p.textTertiary),
-          ]),
-        ),
       ),
     );
   }
