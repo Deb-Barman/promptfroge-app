@@ -14,8 +14,12 @@ import '../../widgets/common.dart';
 class SuggestionPopup extends StatefulWidget {
   final List<SuggestionItem> items;
   final ValueChanged<SuggestionItem> onPick;
-  const SuggestionPopup({super.key, required this.items, required this.onPick});
 
+  /// Shown instead of the list when a trigger (like `//`) has nothing to offer yet.
+  final String? hint;
+  const SuggestionPopup({super.key, required this.items, required this.onPick, this.hint});
+
+  static const double hintHeight = 58;
   static const double rowHeight = 32;
   static const int maxRows = 7;
 
@@ -50,6 +54,19 @@ class _SuggestionPopupState extends State<SuggestionPopup> {
     final p = context.pf;
     final items = widget.items;
     final mono = TextStyle(fontFamily: kMonoFallback.first, fontFamilyFallback: kMonoFallback, fontSize: 13.5, color: p.text);
+    if (items.isEmpty && widget.hint != null) {
+      return Container(
+        height: SuggestionPopup.hintHeight,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        alignment: Alignment.centerLeft,
+        decoration: BoxDecoration(color: p.raised, borderRadius: BorderRadius.circular(10), border: Border.all(color: p.borderStrong), boxShadow: const [BoxShadow(color: Color(0x73000000), blurRadius: 20, offset: Offset(0, 8))]),
+        child: Row(children: [
+          Icon(Icons.info_outline, size: 17, color: p.textTertiary),
+          const SizedBox(width: 10),
+          Expanded(child: Text(widget.hint!, style: TextStyle(fontSize: 12.5, height: 1.35, color: p.textSecondary))),
+        ]),
+      );
+    }
     final h = SuggestionPopup.heightFor(items.length);
     return Container(
       height: h,

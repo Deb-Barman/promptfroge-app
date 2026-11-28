@@ -16,6 +16,7 @@ import '../../../state/tokenizer_provider.dart';
 import '../../../state/vault_notifier.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/common.dart';
+import '../../widgets/pf_menu.dart';
 
 /// What the tools sheet needs from the editor.
 abstract class EditorHost {
@@ -452,11 +453,11 @@ class _VariablesTabState extends ConsumerState<_VariablesTab> {
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: s.type == 'select' && s.options.isNotEmpty
-                ? DropdownButtonFormField<String>(
+                ? PfField<String>(
+                    label: TemplateEngine.humanizeVarName(s.name),
                     value: s.options.contains(_values[s.name]) ? _values[s.name] : (s.options.contains(s.defaultValue) ? s.defaultValue : null),
-                    decoration: InputDecoration(labelText: TemplateEngine.humanizeVarName(s.name)),
-                    items: [for (final o in s.options) DropdownMenuItem(value: o, child: Text(o))],
-                    onChanged: (v) => setState(() => _values[s.name] = v ?? ''),
+                    items: [for (final o in s.options) PfMenuItem<String>(o, o)],
+                    onChanged: (v) => setState(() => _values[s.name] = v),
                   )
                 : TextFormField(
                     initialValue: _values[s.name] ?? s.defaultValue,

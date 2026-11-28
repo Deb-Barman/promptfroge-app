@@ -89,6 +89,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
   String _hintSig = '';
   Timer? _hintTimer;
   bool _popupShown = false;
+  bool _noSuggestOnce = false;
+  bool _kbWasOpen = false;
+  String? _popupHint;
 
   @override
   void initState() {
@@ -144,12 +147,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
 
   @override
   void replaceText(String t) {
+    _noSuggestOnce = true;
     _body.value = TextEditingValue(text: t, selection: TextSelection.collapsed(offset: t.length));
     _markDirty();
   }
 
   @override
   void insertAtCursor(String t) {
+    _noSuggestOnce = true;
     final v = _body.value;
     final sel = v.selection.isValid ? v.selection : TextSelection.collapsed(offset: v.text.length);
     final start = sel.start < 0 ? v.text.length : sel.start;
@@ -262,15 +267,52 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
       _syncWords();
       _markDirty();
       if (_findOpen) _runFind(keepIndex: true);
+      // Typing opens suggestions — but not when the change came from accepting one, or from a tool button.
+      if (_noSuggestOnce) {
+        _noSuggestOnce = false;
+        _dismissPopup();
+      } else {
+        _scheduleSuggestions();
+      }
+    } else {
+      // Only the caret moved (a tap in the text, a drag): like a click in the web editor, close the popup.
+      _dismissPopup();
+      _scheduleSuggestions(popup: false);
     }
-    _scheduleSuggestions();
     _scheduleLiveScore();
     _scheduleHints();
   }
 
   void _onFocusChanged() {
     if (mounted) setState(() {});
-    _scheduleSuggestions();
+    if (!_focus.hasFocus) {
+      _dismissPopup();
+      return;
+    }
+    _scheduleSuggestions(popup: false); // refresh the prediction strip only; never pop a list up just for a tap
+  }
+
+  /// Closes the suggestion list (and the prediction strip's popup state) without touching the text.
+  void _dismissPopup() {
+    _suggestTimer?.cancel();
+    _popupShown = false;
+    if (!mounted) return;
+    if (_suggestions.isNotEmpty || _popupHint != null) {
+      setState(() {
+        _suggestions = const [];
+        _popupHint = null;
+      });
+    }
+  }
+
+  /// The keyboard closing (back button, swipe down) must also close the list: it belongs to typing.
+  @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    final open = views.isNotEmpty && views.first.viewInsets.bottom > 0;
+    if (_kbWasOpen && !open) _dismissPopup();
+    _kbWasOpen = open;
   }
 
   String _lastSeenText = '';
@@ -391,24 +433,31 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     });
   }
 
-  void _scheduleSuggestions() {
+  void _scheduleSuggestions({bool popup = true}) {
     _suggestTimer?.cancel();
-    _suggestTimer = Timer(const Duration(milliseconds: 120), _computeSuggestions);
+    _suggestTimer = Timer(const Duration(milliseconds: 120), () => _computeSuggestions(popup: popup));
   }
 
-  void _computeSuggestions() {
+  /// The "Suggest" button (Ctrl+Space in the web editor): open suggestions for the caret right now.
+  void _suggestNow() {
+    _focus.requestFocus();
+    _computeSuggestions(force: true);
+  }
+
+  void _computeSuggestions({bool popup = true, bool force = false}) {
     if (!mounted) return;
     void clear() {
       _popupShown = false;
-      if (_suggestions.isNotEmpty || _predictions.isNotEmpty) {
+      if (_suggestions.isNotEmpty || _predictions.isNotEmpty || _popupHint != null) {
         setState(() {
           _suggestions = const [];
           _predictions = const [];
+          _popupHint = null;
         });
       }
     }
 
-    if (!ref.read(deviceSettingsProvider).suggestionsEnabled) {
+    if (!force && !ref.read(deviceSettingsProvider).suggestionsEnabled) {
       clear();
       return;
     }
@@ -421,7 +470,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     final state = ref.read(vaultProvider);
 
     // 1) insertion triggers: / // /// \ \\ @
-    final trig = TriggerDetector.detect(before);
+    final trig = popup ? TriggerDetector.detect(before) : null;
     if (trig != null) {
       final kind = TriggerDetector.kindForPrefix(trig.prefix);
       if (kind != null) {
@@ -430,8 +479,20 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
         _sugReplaceEnd = cursor;
         _sugSuffix = '';
         _popupShown = false;
+        // Like the web editor: a bare prefix with nothing behind it still answers, with a hint.
+        final hint = items.isEmpty && trig.query.isEmpty
+            ? const {
+                'snippet': 'No snippets yet — create one under Templates → Snippets.',
+                'prompt': 'No saved prompts yet — save one and it appears here.',
+                'pattern': 'No patterns to insert.',
+                'template': 'No templates yet — create one under Templates.',
+                'block': 'No prompt blocks available.',
+                'link': 'No other prompts to link to yet.',
+              }[kind]
+            : null;
         setState(() {
           _suggestions = items;
+          _popupHint = hint;
           _predictions = const [];
         });
         return;
@@ -441,7 +502,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     final vm = RegExp(r'\{\{\s*([a-zA-Z0-9_]*)$').firstMatch(before);
     final hub = ref.read(suggestionHubProvider);
     final engine = hub.fresh(state);
-    if (vm != null) {
+    if (vm != null && popup) {
       final partial = vm.group(1) ?? '';
       final items = engine.variableSuggestions(partial);
       _sugReplaceStart = cursor - partial.length;
@@ -460,6 +521,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     if (model != null) {
       _sugSuffix = '';
       if (RegExp(r"[A-Za-z][A-Za-z0-9_'’-]*$").hasMatch(before)) {
+        if (!popup) return clear();
         final hits = model.complete(before, usage: bs.usage, limit: 8);
         if (hits.isEmpty) return clear();
         _sugReplaceStart = cursor - hits.first.matchLen;
@@ -475,11 +537,22 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
         return;
       }
       final atBoundary = before.isEmpty || RegExp(r'\s$').hasMatch(before);
-      final preds = atBoundary ? model.predictNext(before, usage: bs.usage) : const <BrainHit>[];
+      final preds = atBoundary ? model.predictNext(before, usage: bs.usage, limit: force ? 8 : 4) : const <BrainHit>[];
+      if (force && preds.isNotEmpty) {
+        // asked for explicitly: show the predictions as a list under the caret too
+        _sugReplaceStart = cursor;
+        _sugReplaceEnd = cursor;
+        setState(() {
+          _suggestions = [for (final h in preds) SuggestionItem(h.label, h.insert, 'phrase', matchLen: 0)];
+          _predictions = const [];
+        });
+        return;
+      }
       _popupShown = false;
-      if (_suggestions.isNotEmpty || _predictions.length != preds.length || (preds.isNotEmpty && _predictions.isNotEmpty && _predictions.first.insert != preds.first.insert) || (_predictions.isEmpty && preds.isNotEmpty)) {
+      if (_suggestions.isNotEmpty || _popupHint != null || _predictions.length != preds.length || (preds.isNotEmpty && _predictions.isNotEmpty && _predictions.first.insert != preds.first.insert) || (_predictions.isEmpty && preds.isNotEmpty)) {
         setState(() {
           _suggestions = const [];
+          _popupHint = null;
           _predictions = preds;
         });
       }
@@ -504,6 +577,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     final replaceStart = (s.src == 'word' || s.src == 'phrase') ? (end - s.matchLen).clamp(0, end) : start;
     final ins = '${s.text}$_sugSuffix';
     final next = t.replaceRange(replaceStart, end, ins);
+    _noSuggestOnce = true;
     _body.value = TextEditingValue(text: next, selection: TextSelection.collapsed(offset: replaceStart + ins.length));
     _popupShown = false;
     setState(() => _suggestions = const []);
@@ -520,6 +594,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
     final sel = _body.selection;
     final cur = (sel.isValid ? sel.baseOffset : t.length).clamp(0, t.length);
     final next = t.replaceRange(cur, cur, h.insert);
+    _noSuggestOnce = true;
     _body.value = TextEditingValue(text: next, selection: TextSelection.collapsed(offset: cur + h.insert.length));
     ref.read(brainProvider.notifier).recordAccept(h.insert);
     _focus.requestFocus();
@@ -1146,9 +1221,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
       wordWrap: ds.wordWrap,
       lineHeight: ds.lineHeight == 'compact' ? 1.4 : (ds.lineHeight == 'loose' ? 2.0 : 1.7),
       tabWidth: ds.tabWidth,
-      popup: _suggestions.isNotEmpty ? SuggestionPopup(items: _suggestions, onPick: _acceptSuggestion) : null,
-      popupHeight: SuggestionPopup.heightFor(_suggestions.length),
-      popupWidth: SuggestionPopup.widthFor(_suggestions, 300),
+      popup: _suggestions.isNotEmpty || _popupHint != null ? SuggestionPopup(items: _suggestions, hint: _popupHint, onPick: _acceptSuggestion) : null,
+      popupHeight: _suggestions.isEmpty ? SuggestionPopup.hintHeight : SuggestionPopup.heightFor(_suggestions.length),
+      popupWidth: _suggestions.isEmpty ? 270 : SuggestionPopup.widthFor(_suggestions, 300),
       scrollController: _scroll,
       hint: 'Write your prompt…  Try / for snippets, // for prompts, @ for links, {{ for variables.',
     );
@@ -1252,6 +1327,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
           SizedBox(
             height: 42,
             child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8), children: [
+              Padding(
+                padding: const EdgeInsets.only(right: 6, top: 7, bottom: 7),
+                child: ActionChip(
+                  visualDensity: VisualDensity.compact,
+                  avatar: Icon(Icons.auto_awesome, size: 15, color: p.amber),
+                  label: const Text('Suggest', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                  onPressed: _suggestNow,
+                ),
+              ),
               for (final t in const [
                 ['/', 'snippet'],
                 ['//', 'prompt'],
@@ -1272,6 +1356,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> with WidgetsBinding
                         final off = _body.selection.baseOffset - 2;
                         _body.selection = TextSelection.collapsed(offset: off);
                         _focus.requestFocus();
+                        _scheduleSuggestions(); // offer the known variable names right away
                       } else {
                         _quickInsert(t[0]);
                       }
