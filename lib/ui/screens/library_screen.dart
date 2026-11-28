@@ -468,22 +468,34 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 SizedBox(
                   height: 38,
                   child: ListView(scrollDirection: Axis.horizontal, children: [
-                    PopupMenuButton<String>(
-                      tooltip: 'Category',
-                      onSelected: (v) => setState(() => _category = v),
-                      itemBuilder: (_) => [for (final o in categoryOptions) PopupMenuItem(value: o.key, child: Text(o.value))],
-                      child: _RailChip(label: _category == 'all' ? 'All categories' : categoryById(_category).label, icon: Icons.category_outlined, on: _category != 'all', trailing: Icons.arrow_drop_down),
+                    Builder(
+                      builder: (ctx) => _RailChip(
+                        label: _category == 'all' ? 'All categories' : categoryById(_category).label,
+                        icon: Icons.category_outlined,
+                        on: _category != 'all',
+                        trailing: Icons.arrow_drop_down,
+                        onTap: () async {
+                          final v = await showPfMenu<String>(ctx, selected: _category, minWidth: 220, items: [for (final o in categoryOptions) PfMenuItem<String>(o.key, o.value)]);
+                          if (v != null) setState(() => _category = v);
+                        },
+                      ),
                     ),
-                    PopupMenuButton<String>(
-                      tooltip: 'Sort',
-                      onSelected: (v) => setState(() => _sort = v),
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: 'updated', child: Text('Recently updated')),
-                        PopupMenuItem(value: 'created', child: Text('Newest')),
-                        PopupMenuItem(value: 'title', child: Text('Title')),
-                        PopupMenuItem(value: 'used', child: Text('Most used')),
-                      ],
-                      child: _RailChip(label: const {'updated': 'Recently updated', 'created': 'Newest', 'title': 'Title', 'used': 'Most used'}[_sort] ?? 'Sort', icon: Icons.swap_vert, on: false, trailing: Icons.arrow_drop_down),
+                    Builder(
+                      builder: (ctx) => _RailChip(
+                        label: const {'updated': 'Recently updated', 'created': 'Newest', 'title': 'Title', 'used': 'Most used'}[_sort] ?? 'Sort',
+                        icon: Icons.swap_vert,
+                        on: false,
+                        trailing: Icons.arrow_drop_down,
+                        onTap: () async {
+                          final v = await showPfMenu<String>(ctx, selected: _sort, minWidth: 210, items: const [
+                            PfMenuItem('updated', 'Recently updated', icon: Icons.update),
+                            PfMenuItem('created', 'Newest first', icon: Icons.fiber_new_outlined),
+                            PfMenuItem('title', 'Title A–Z', icon: Icons.sort_by_alpha),
+                            PfMenuItem('used', 'Most used', icon: Icons.local_fire_department_outlined),
+                          ]);
+                          if (v != null) setState(() => _sort = v);
+                        },
+                      ),
                     ),
                     _RailChip(label: 'Favorites', icon: Icons.star_border, on: _favOnly, onTap: () => setState(() => _favOnly = !_favOnly)),
                     _RailChip(label: 'Archived', icon: Icons.archive_outlined, on: _showArchived, onTap: () => setState(() => _showArchived = !_showArchived)),

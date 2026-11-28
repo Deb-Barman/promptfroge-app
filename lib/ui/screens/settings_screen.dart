@@ -30,7 +30,12 @@ class SettingsScreen extends ConsumerWidget {
 
     Widget dropdown<T>({required String label, required T value, required List<DropdownMenuItem<T>> items, required ValueChanged<T?> onChanged}) => Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: DropdownButtonFormField<T>(value: value, isExpanded: true, decoration: InputDecoration(labelText: label), items: items, onChanged: onChanged),
+          child: PfField<T>(
+            label: label,
+            value: value,
+            items: [for (final i in items) i.enabled ? PfMenuItem<T>(i.value as T, i.child is Text ? ((i.child as Text).data ?? '') : '') : PfMenuItem<T>.header(i.child is Text ? ((i.child as Text).data ?? '') : '')],
+            onChanged: (v) => onChanged(v),
+          ),
         );
 
     final customIds = {for (final m in s.customModels) m.id};
